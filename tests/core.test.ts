@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  applyProfile, commit, describePreset, editorBlocks, samplerDisabledWarning, exportProfiles, importProfiles, normalizeStore, planApply, undoBackup,
+  applyProfile, applyProfileViaEditor, commit, describePreset, editorBlocks, resolveActive, samplerDisabledWarning, samplerPatch, samplerPrechecked,
+  undoBackupViaEditor, variablePrechecked, writeRoute, exportProfiles, importProfiles, normalizeStore, planApply, undoBackup,
   type PresetLike,
 } from '../src/core';
 import { emptyStore, type Profile } from '../src/shared';
-import { parseSampler, parseVariable } from '../src/frontend';
+import { checkVariableShape, parseSampler, parseVariable } from '../src/frontend';
 import { FakeHost, syntheticBlocks, syntheticPreset } from './fake-host';
 
 const blocks = syntheticBlocks;
@@ -190,5 +191,160 @@ describe('sampler switch and editor guard', () => {
     const r = await undoBackup(host, store, 'p1');
     expect(r.status).toBe('noop');
     expect(host.updates.length).toBe(n);
+  });
+});
+
+// Stand-in for the host's preset editor: it keeps its own draft and, like the real one, writes the whole
+// parameters object back when it saves (with a revision bump).
+class FakeEditor {
+  draft: Record<string, unknown>;
+  constructor(private host: FakeHost) { this.draft = JSON.parse(JSON.stringify(host.preset.parameters)) as Record<string, unknown>; }
+  sampler = async (patch: { set: Record<string, never>; remove: string[] }) => {
+    const r = samplerPatch(this.draft.samplerOverrides, patch);
+    if (r.changed) this.draft = { ...this.draft, samplerOverrides: r.next };
+    await this.save();
+    return { changed: r.changed, prev: r.prev };
+  };
+  async save() {
+    this.host.preset.parameters = JSON.parse(JSON.stringify(this.draft));
+    this.host.preset.cache_revision! += 1;
+  }
+}
+
+describe('opening the preset editor', () => {
+  test('first open: only values that differ from defaults are pre-checked', () => {
+    const detail = describePreset(makePreset());
+    // every numeric sampler defaults to unset (null): set ones are checked, null ones and the two switches are not
+    expect(['temperature', 'topP', 'topK', 'maxTokens', 'enabled', 'streaming', 'minP'].map((k) => samplerPrechecked(detail, k))).toEqual([true, true, true, false, false, false, false]);
+    // variables: stored value equal to the default is not "changed"
+    const vars = Object.fromEntries(detail.variables.map((v) => [v.name, variablePrechecked(v)]));
+    expect(vars).toEqual({ plan: false, risky: false, note: false });
+    const p = makePreset();
+    (p.metadata.promptVariables as Record<string, Record<string, unknown>>).b1 = { plan: 'b', risky: 0, note: 'hi' };
+    const d2 = describePreset(p);
+    expect(Object.fromEntries(d2.variables.map((v) => [v.name, variablePrechecked(v)]))).toEqual({ plan: true, risky: false, note: true });
+  });
+
+  test('a preset with every key stored (null = unset) does not check everything', () => {
+    const p = makePreset();
+    p.parameters.samplerOverrides = { enabled: true, maxTokens: null, contextSize: null, temperature: null, topP: null, minP: null, topK: null, frequencyPenalty: null, presencePenalty: null, repetitionPenalty: null, streaming: true };
+    const d = describePreset(p);
+    expect(Object.keys(d.sampler).filter((k) => samplerPrechecked(d, k))).toEqual([]);
+  });
+});
+
+describe('active preset detection', () => {
+  test('the frontend hint answers when the host worker has no getActive', () => {
+    expect(resolveActive('p9', null)).toEqual({ id: 'p9', source: null, known: true });
+    expect(resolveActive(null, null)).toEqual({ id: null, source: null, known: true });
+  });
+  test('no hint and no host call means unknown, not "no preset"', () => {
+    expect(resolveActive(undefined, null)).toEqual({ id: null, source: null, known: false });
+    expect(resolveActive(undefined, null, 'old')).toEqual({ id: 'old', source: null, known: true });
+  });
+  test('the host call fills in the source and answers when there is no hint', () => {
+    expect(resolveActive('p9', { preset_id: 'p1', source: 'chat' })).toEqual({ id: 'p9', source: 'chat', known: true });
+    expect(resolveActive(undefined, { preset_id: 'p1', source: 'chat' })).toEqual({ id: 'p1', source: 'chat', known: true });
+  });
+});
+
+describe('applying through the open editor', () => {
+  test('routing: direct, editor draft, or refusal when the host cannot take editor writes', () => {
+    expect(writeRoute({ editorPresetId: null }, 'p1', true)).toBe('direct');
+    expect(writeRoute({ editorPresetId: 'p2', editorDraft: true }, 'p1', true)).toBe('direct');
+    expect(writeRoute({ editorPresetId: 'p1', editorDraft: true }, 'p1', true)).toBe('editor');
+    expect(writeRoute({ editorPresetId: 'p1', editorDraft: false }, 'p1', true)).toBe('refuse');
+    expect(writeRoute({ editorPresetId: 'p1', editorDraft: true }, 'p1', false)).toBe('refuse');
+  });
+
+  test('samplers go through the editor draft, variables through the host, and a later editor save keeps them', async () => {
+    const host = new FakeHost();
+    const editor = new FakeEditor(host);
+    const store = emptyStore();
+    const r = await applyProfileViaEditor(host, store, profile(), { before: null, switchedTo: null }, editor.sampler as never);
+    expect(r.status).toBe('applied');
+    // the host write carried only the variables
+    expect(host.updates).toHaveLength(1);
+    expect(host.updates[0]!.parameters).toBeUndefined();
+    expect(host.preset.metadata.promptVariables).toEqual({ b1: { plan: 'b', risky: 1 } });
+    const so = host.preset.parameters.samplerOverrides as Record<string, unknown>;
+    expect(so).toMatchObject({ temperature: 0.75, topP: 0.95, topK: null });
+    // the editor draft and the stored preset agree
+    expect(editor.draft.samplerOverrides).toEqual(so);
+    // the user now edits an unrelated value in the editor: the apply is not reverted
+    editor.draft = { ...editor.draft, samplerOverrides: { ...(editor.draft.samplerOverrides as object), minP: 0.05 } };
+    await editor.save();
+    expect(host.preset.parameters.samplerOverrides).toMatchObject({ temperature: 0.75, topP: 0.95, minP: 0.05 });
+    expect(host.preset.metadata.promptVariables).toEqual({ b1: { plan: 'b', risky: 1 } });
+    expect(store.backups.p1!.sampler.temperature).toEqual({ had: true, value: 1 });
+  });
+
+  test('undo takes the same path and restores both', async () => {
+    const host = new FakeHost();
+    const editor = new FakeEditor(host);
+    const store = emptyStore();
+    const before = JSON.stringify(host.preset.parameters.samplerOverrides);
+    await applyProfileViaEditor(host, store, profile(), { before: null, switchedTo: null }, editor.sampler as never);
+    const r = await undoBackupViaEditor(host, store, 'p1', editor.sampler as never);
+    expect(r.status).toBe('applied');
+    expect(JSON.stringify(host.preset.parameters.samplerOverrides)).toBe(before);
+    expect(JSON.stringify(editor.draft.samplerOverrides)).toBe(before);
+    expect(host.preset.metadata.promptVariables).toEqual({ b1: { plan: 'a' } });
+    expect(store.backups.p1).toBeUndefined();
+  });
+
+  test('sampler-only change through the editor still counts as applied and leaves a backup', async () => {
+    const host = new FakeHost();
+    const editor = new FakeEditor(host);
+    const store = emptyStore();
+    const r = await applyProfileViaEditor(host, store, profile({ variables: {} }), { before: null, switchedTo: null }, editor.sampler as never);
+    expect(r.status).toBe('applied');
+    expect(host.updates).toHaveLength(0);
+    expect(store.backups.p1).toBeDefined();
+  });
+
+  test('same values again: noop, no host write, no new backup', async () => {
+    const host = new FakeHost();
+    const editor = new FakeEditor(host);
+    const store = emptyStore();
+    await applyProfileViaEditor(host, store, profile(), { before: null, switchedTo: null }, editor.sampler as never);
+    delete store.backups.p1;
+    host.updates.length = 0;
+    const r = await applyProfileViaEditor(host, store, profile(), { before: null, switchedTo: null }, editor.sampler as never);
+    expect(r.status).toBe('noop');
+    expect(host.updates).toHaveLength(0);
+    expect(store.backups.p1).toBeUndefined();
+  });
+
+  test('an editor failure aborts before anything is written to the host', async () => {
+    const host = new FakeHost();
+    const store = emptyStore();
+    await expect(applyProfileViaEditor(host, store, profile(), { before: null, switchedTo: null }, async () => { throw new Error('closed'); })).rejects.toThrow('closed');
+    expect(host.updates).toHaveLength(0);
+    expect(store.backups.p1).toBeUndefined();
+  });
+
+  test('samplerPatch reports only what changed', () => {
+    const r = samplerPatch({ temperature: 1, topP: 0.9 }, { set: { temperature: 1, topK: 5 }, remove: ['topP', 'nope'] });
+    expect(r.next).toEqual({ temperature: 1, topK: 5 });
+    expect(r.prev).toEqual({ topK: { had: false }, topP: { had: true, value: 0.9 } });
+    expect(samplerPatch({ a: 1 }, { set: { a: 1 }, remove: [] }).changed).toBe(false);
+  });
+});
+
+describe('variable shape check', () => {
+  const opts = [{ id: 'a' }, { id: 'b' }];
+  test('range needs two ordered numbers', () => {
+    expect(() => checkVariableShape('range', [], [1, 5])).not.toThrow();
+    expect(() => checkVariableShape('range', [], [5, 1])).toThrow();
+    expect(() => checkVariableShape('range', [], [1])).toThrow();
+    expect(() => checkVariableShape('range', [], 'x')).toThrow();
+  });
+  test('multiselect needs known option ids', () => {
+    expect(() => checkVariableShape('multiselect', opts, ['a', 'b'])).not.toThrow();
+    expect(() => checkVariableShape('multiselect', opts, [])).not.toThrow();
+    expect(() => checkVariableShape('multiselect', opts, ['z'])).toThrow();
+    expect(() => checkVariableShape('multiselect', opts, [1])).toThrow();
+    expect(() => checkVariableShape('multiselect', opts, 'a')).toThrow();
   });
 });

@@ -2,7 +2,7 @@
 // The preset block list, prompts, name and regexes are never part of an update payload.
 
 import {
-  type Backup, type Json, type PresetDetail, type Prev, type Profile, type Store, type VariableInfo, type VariableValues,
+  type Backup, type Json, type PresetDetail, type SamplerPatch, type Prev, type Profile, type Store, type VariableInfo, type VariableValues,
   BOOLEAN_SAMPLER_KEYS, SAMPLER_KEYS, emptyStore, newId,
 } from './shared';
 
@@ -307,6 +307,25 @@ export function editorBlocks(editorPresetId: string | null | undefined, presetId
   return !!editorPresetId && editorPresetId === presetId;
 }
 
+/** How a write to `presetId` must be routed: straight to the host, through the open editor's draft, or not at all. */
+export function writeRoute(info: { editorPresetId?: string | null; editorDraft?: boolean }, presetId: string, haveSession: boolean): 'direct' | 'editor' | 'refuse' {
+  if (!editorBlocks(info.editorPresetId, presetId)) return 'direct';
+  return info.editorDraft && haveSession ? 'editor' : 'refuse';
+}
+
+/**
+ * Which preset is active. `hint` comes from the frontend's own state (undefined = it could not tell, null = none);
+ * `api` is the answer of presets.getActive when the host has that call; `last` is the last hint seen.
+ */
+export function resolveActive(
+  hint: string | null | undefined, api: { preset_id?: string | null; source?: string | null } | null, last?: string | null,
+): { id: string | null; source: string | null; known: boolean } {
+  let id: string | null | undefined = hint;
+  if (id === undefined && api) id = api.preset_id ?? null;
+  if (id === undefined) id = last;
+  return { id: id ?? null, source: api?.source ?? null, known: id !== undefined };
+}
+
 /**
  * Read, plan, write with `expected_cache_revision`. On a revision conflict, re-read and plan again once.
  * `onPlan` receives the plan that was actually written.
@@ -371,6 +390,87 @@ export async function undoBackup(host: PresetHost, store: Store, presetId: strin
   const result = await commit(host, presetId, (p) => planUndo(p, backup));
   if (result.status === 'applied' || result.status === 'noop') delete store.backups[presetId];
   return result;
+}
+
+// ---- apply / undo through an open preset editor ----
+
+/** Pure sampler edit: returns the next samplerOverrides, the previous state of every key that changed, and whether anything changed. */
+export function samplerPatch(
+  current: unknown, patch: SamplerPatch,
+): { next: Record<string, unknown>; prev: Record<string, Prev>; changed: boolean } {
+  const next: Record<string, unknown> = isObj(current) ? { ...current } : {};
+  const prev: Record<string, Prev> = {};
+  let changed = false;
+  for (const [k, nv] of Object.entries(patch.set)) {
+    if (BAD_KEYS.has(k)) continue;
+    const had = Object.hasOwn(next, k);
+    if (had && deepEqual(next[k], nv)) continue;
+    prev[k] = had ? { had, value: cleanJson(next[k]) ?? null } : { had };
+    next[k] = nv;
+    changed = true;
+  }
+  for (const k of patch.remove) {
+    if (BAD_KEYS.has(k) || !Object.hasOwn(next, k)) continue;
+    prev[k] = { had: true, value: cleanJson(next[k]) ?? null };
+    delete next[k];
+    changed = true;
+  }
+  return { next, prev, changed };
+}
+
+/** Runs a sampler patch through the open editor's draft and flushes it. Resolves after the host has persisted it. */
+export type EditorSampler = (patch: SamplerPatch) => Promise<{ changed: boolean; prev: Record<string, Prev> }>;
+
+/**
+ * Apply while the preset editor has the same preset open. Sampler values go through the editor draft
+ * (so the editor and the stored preset agree and a later editor save cannot undo them); prompt-variable values
+ * cannot be carried by the draft, so they are written through the host with a fresh revision right after.
+ */
+export async function applyProfileViaEditor(
+  host: PresetHost, store: Store, profile: Profile, conn: { before: string | null; switchedTo: string | null }, editor: EditorSampler,
+): Promise<CommitResult> {
+  const ed = await editor({ set: profile.sampler, remove: [] });
+  let plan: Plan | null = null;
+  const result = await commit(host, profile.presetId, (p) => planApply(p, { sampler: {}, variables: profile.variables }), (pl) => { plan = pl; });
+  const varPlan = plan as Plan | null;
+  if (ed.changed || result.status === 'applied') {
+    store.backups[profile.presetId] = {
+      presetId: profile.presetId, profileId: profile.id, profileName: profile.name, at: Date.now(),
+      sampler: ed.prev, variables: varPlan?.variables ?? {},
+      connectionBefore: conn.before, connectionSwitchedTo: conn.switchedTo,
+    };
+  }
+  if (result.status === 'noop' && ed.changed) return { status: 'applied', preset: result.preset, skipped: result.skipped };
+  return result;
+}
+
+export async function undoBackupViaEditor(host: PresetHost, store: Store, presetId: string, editor: EditorSampler): Promise<CommitResult> {
+  const backup = store.backups[presetId];
+  if (!backup) return { status: 'missing' };
+  const patch: SamplerPatch = { set: {}, remove: [] };
+  for (const [k, prev] of Object.entries(backup.sampler)) {
+    if (prev.had) patch.set[k] = prev.value ?? null;
+    else patch.remove.push(k);
+  }
+  const ed = await editor(patch);
+  const result = await commit(host, presetId, (p) => planUndo(p, { ...backup, sampler: {} }));
+  if (result.status === 'applied' || result.status === 'noop') delete store.backups[presetId];
+  if (result.status === 'noop' && ed.changed) return { status: 'applied', preset: result.preset, skipped: result.skipped };
+  return result;
+}
+
+// ---- save form: which values start checked ----
+
+/** Sampler keys that differ from the host default (every numeric sampler defaults to unset = null). */
+export function samplerPrechecked(detail: Pick<PresetDetail, 'sampler'>, key: string): boolean {
+  if (BOOLEAN_SAMPLER_KEYS.includes(key) || !Object.hasOwn(detail.sampler, key)) return false;
+  const v = detail.sampler[key];
+  return v !== null && v !== undefined;
+}
+
+/** Prompt variables the user actually changed: an explicit stored value that differs from the block's default. */
+export function variablePrechecked(info: Pick<VariableInfo, 'hasCurrent' | 'current' | 'defaultValue'>): boolean {
+  return info.hasCurrent && !deepEqual(info.current, info.defaultValue);
 }
 
 // ---- export / import ----

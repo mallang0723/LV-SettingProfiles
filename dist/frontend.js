@@ -27,6 +27,63 @@ var SAMPLER_LABELS = {
   streaming: "스트리밍"
 };
 
+// src/core.ts
+var BAD_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+function deepEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+function cleanJson(v, depth = 0) {
+  if (depth > 4)
+    return;
+  if (v === null || typeof v === "string" || typeof v === "boolean")
+    return v;
+  if (typeof v === "number")
+    return Number.isFinite(v) ? v : undefined;
+  if (Array.isArray(v)) {
+    const out = [];
+    for (const x of v.slice(0, 500)) {
+      const c = cleanJson(x, depth + 1);
+      if (c !== undefined)
+        out.push(c);
+    }
+    return out;
+  }
+  return;
+}
+function samplerPatch(current, patch) {
+  const next = isObj(current) ? { ...current } : {};
+  const prev = {};
+  let changed = false;
+  for (const [k, nv] of Object.entries(patch.set)) {
+    if (BAD_KEYS.has(k))
+      continue;
+    const had = Object.hasOwn(next, k);
+    if (had && deepEqual(next[k], nv))
+      continue;
+    prev[k] = had ? { had, value: cleanJson(next[k]) ?? null } : { had };
+    next[k] = nv;
+    changed = true;
+  }
+  for (const k of patch.remove) {
+    if (BAD_KEYS.has(k) || !Object.hasOwn(next, k))
+      continue;
+    prev[k] = { had: true, value: cleanJson(next[k]) ?? null };
+    delete next[k];
+    changed = true;
+  }
+  return { next, prev, changed };
+}
+function samplerPrechecked(detail, key) {
+  if (BOOLEAN_SAMPLER_KEYS.includes(key) || !Object.hasOwn(detail.sampler, key))
+    return false;
+  const v = detail.sampler[key];
+  return v !== null && v !== undefined;
+}
+function variablePrechecked(info) {
+  return info.hasCurrent && !deepEqual(info.current, info.defaultValue);
+}
+
 // src/frontend.ts
 var CSS = `
 .sp-panel { display: flex; flex-direction: column; gap: 12px; padding: 10px; color: var(--lumiverse-text, inherit); box-sizing: border-box; max-width: 100%; }
@@ -89,6 +146,21 @@ function parseVariable(type, text) {
     return text;
   return JSON.parse(text);
 }
+function checkVariableShape(type, options, v) {
+  if (type === "range") {
+    if (!Array.isArray(v) || v.length !== 2 || v.some((x) => typeof x !== "number" || !Number.isFinite(x)))
+      throw new Error("[최소, 최대] 숫자 두 개여야 합니다 (예: [1, 5])");
+    if (v[0] > v[1])
+      throw new Error("최소가 최대보다 클 수 없습니다");
+  } else if (type === "multiselect") {
+    if (!Array.isArray(v) || v.some((x) => typeof x !== "string"))
+      throw new Error('선택지 id의 배열이어야 합니다 (예: ["a","b"])');
+    const ids = new Set(options.map((o) => o.id));
+    const bad = v.filter((x) => !ids.has(x));
+    if (ids.size && bad.length)
+      throw new Error(`없는 선택지: ${bad.join(", ")}`);
+  }
+}
 function parseSampler(key, text) {
   if (BOOLEAN_SAMPLER_KEYS.includes(key))
     return text === "true";
@@ -116,8 +188,19 @@ function setup(ctx) {
     return m ? decodeURIComponent(m[1]) : null;
   };
   const connApi = () => ctx.connections;
-  const canAuto = () => typeof connApi()?.subscribe === "function" && typeof connApi()?.getActive === "function";
-  const canSwitch = () => typeof connApi()?.setActiveAcknowledged === "function" || typeof connApi()?.setActive === "function";
+  let granted = null;
+  const genDenied = () => granted !== null && !granted.includes("generation");
+  async function loadGranted() {
+    try {
+      const g = await ctx.permissions?.getGranted?.();
+      granted = Array.isArray(g) ? g : null;
+    } catch {
+      granted = null;
+    }
+    render();
+  }
+  const canAuto = () => !genDenied() && typeof connApi()?.subscribe === "function" && typeof connApi()?.getActive === "function" && activeKnown();
+  const canSwitch = () => !genDenied() && (typeof connApi()?.setActiveAcknowledged === "function" || typeof connApi()?.setActive === "function");
   const activeConn = () => {
     try {
       return connApi()?.getActive?.().activeProfileId ?? null;
@@ -149,7 +232,7 @@ function setup(ctx) {
   }
   let offSub = null;
   let lastConn = activeConn();
-  if (canAuto()) {
+  if (typeof connApi()?.subscribe === "function" && typeof connApi()?.getActive === "function") {
     offSub = connApi().subscribe((v) => {
       const id = v?.activeProfileId ?? null;
       if (id === lastConn)
@@ -160,18 +243,67 @@ function setup(ctx) {
       debounce = setTimeout(() => {
         if (Date.now() < suppressUntil || !st?.settings.autoApply)
           return;
-        toBackend({ type: "connection_changed", connectionId: id, chatId: chatId(), editorPresetId: editorPresetId() });
+        if (genDenied())
+          return;
+        toBackend({ type: "connection_changed", connectionId: id, chatId: chatId(), activePresetId: activeHint(), ...editorInfo() });
       }, 700);
     });
   }
+  const stateApi = () => ctx.state;
+  function activeHint() {
+    try {
+      const sa = stateApi();
+      if (typeof sa?.get !== "function")
+        return;
+      const v = sa.get("loom.activePresetId");
+      return typeof v === "string" && v ? v : null;
+    } catch {
+      return;
+    }
+  }
+  const activeKnown = () => activeHint() !== undefined || !!st?.activeAvailable;
+  const currentActive = () => {
+    const h = activeHint();
+    return h !== undefined ? h : st?.activePresetId ?? null;
+  };
+  let offActive = null;
+  try {
+    const sa = stateApi();
+    if (typeof sa?.subscribe === "function")
+      offActive = sa.subscribe("loom.activePresetId", () => render());
+  } catch {
+    offActive = null;
+  }
+  const editorApi = () => ctx.ui.presetEditor;
   function editorPresetId() {
     try {
-      const pe = ctx.ui.presetEditor;
-      const s = pe?.getState();
+      const s = editorApi()?.getState();
       return s?.open && s.presetId ? s.presetId : null;
     } catch {
       return null;
     }
+  }
+  function editorInfo() {
+    const pe = editorApi();
+    return { editorPresetId: editorPresetId(), editorDraft: typeof pe?.updatePreset === "function" && typeof pe?.flush === "function" };
+  }
+  async function runEditorPatch(presetId, patch) {
+    const pe = editorApi();
+    const s = pe?.getState();
+    if (!pe?.updatePreset || !pe.flush || !s?.open || s.presetId !== presetId || !s.preset)
+      throw new Error("편집기가 이 프리셋을 더 이상 열고 있지 않습니다.");
+    let out = null;
+    pe.updatePreset((d) => {
+      const r = samplerPatch(d.parameters?.samplerOverrides, patch);
+      out = { changed: r.changed, prev: r.prev };
+      if (!r.changed)
+        return d;
+      return { ...d, parameters: { ...d.parameters, samplerOverrides: r.next } };
+    }, { immediate: true });
+    if (!out)
+      throw new Error("편집기가 값을 받지 않았습니다.");
+    await pe.flush();
+    return out;
   }
   function show(level, text) {
     status = text;
@@ -190,8 +322,9 @@ function setup(ctx) {
   const panel = el("div", { class: "sp-panel" });
   tab.root.replaceChildren(panel);
   function reload() {
-    toBackend({ type: "load", chatId: chatId() });
+    toBackend({ type: "load", chatId: chatId(), activePresetId: activeHint() });
     loadConns();
+    loadGranted();
   }
   const offActivate = tab.onActivate(reload);
   function pickPreset(id) {
@@ -216,7 +349,7 @@ function setup(ctx) {
     return parts.join(" · ") || "비어 있음";
   }
   function doApply(p) {
-    toBackend({ type: "apply", id: p.id, chatId: chatId(), activeConnectionId: activeConn(), switched: !!p.connectionId && canSwitch(), editorPresetId: editorPresetId() });
+    toBackend({ type: "apply", id: p.id, chatId: chatId(), activeConnectionId: activeConn(), switched: !!p.connectionId && canSwitch(), ...editorInfo() });
   }
   function newForm(profile) {
     if (!detail || !selected)
@@ -226,14 +359,14 @@ function setup(ctx) {
       const inProfile = profile ? Object.hasOwn(profile.sampler, k) : false;
       const cur = detail.sampler[k];
       const val = profile ? inProfile ? profile.sampler[k] : cur : cur;
-      sampler[k] = { on: profile ? inProfile : Object.hasOwn(detail.sampler, k) && k !== "enabled" && k !== "streaming", text: BOOLEAN_SAMPLER_KEYS.includes(k) ? String(val !== false) : valueToText(val) };
+      sampler[k] = { on: profile ? inProfile : samplerPrechecked(detail, k), text: BOOLEAN_SAMPLER_KEYS.includes(k) ? String(val !== false) : valueToText(val) };
     }
     const known = new Set(detail.variables.map((v) => `${v.blockId}\x00${v.name}`));
     const vars = detail.variables.map((info) => {
       const pv = profile?.variables[info.blockId]?.[info.name];
       const inProfile = pv !== undefined;
       const base = info.hasCurrent ? info.current : info.defaultValue;
-      return { info, on: profile ? inProfile : info.hasCurrent, text: valueToText(inProfile ? pv : base) };
+      return { info, on: profile ? inProfile : variablePrechecked(info), text: valueToText(inProfile ? pv : base) };
     });
     const orphans = {};
     for (const [b, bucket] of Object.entries(profile?.variables ?? {})) {
@@ -282,6 +415,7 @@ function setup(ctx) {
         let v;
         try {
           v = parseVariable(r.info.type, r.text);
+          checkVariableShape(r.info.type, r.info.options, v);
         } catch (e) {
           throw new Error(`${r.info.label}: ${e.message}`);
         }
@@ -317,7 +451,7 @@ function setup(ctx) {
         f.name = e.target.value;
       } })
     ]));
-    box.append(el("div", { class: "sp-muted" }, ['체크한 항목만 적용됩니다. 체크하지 않은 값은 건드리지 않습니다. 숫자 칸을 비우면 "비움"으로 적용됩니다.']));
+    box.append(el("div", { class: "sp-muted" }, ['체크한 항목만 적용됩니다. 처음에는 기본값과 다른 값만 체크되어 있습니다. 체크하지 않은 값은 건드리지 않습니다. 숫자 칸을 비우면 "비움"으로 적용됩니다.']));
     box.append(el("div", { class: "sp-h" }, ["샘플러"]));
     if (detail && detail.sampler.enabled !== true) {
       box.append(el("div", { class: "sp-status sp-warning" }, ['이 프리셋은 샘플러 사용이 꺼져 있습니다. 아래 "샘플러 값 사용 = 켬"을 함께 넣지 않으면 적용해도 생성에 반영되지 않습니다.']));
@@ -394,7 +528,7 @@ function setup(ctx) {
       box.append(el("div", { class: "sp-muted" }, [`프리셋에 없는 변수 ${orphanCount}개는 그대로 보존되며 적용 때 건너뜁니다.`]));
     box.append(el("div", { class: "sp-h" }, ["연결 (선택)"]));
     if (!canSwitch())
-      box.append(el("div", { class: "sp-muted" }, ["이 Lumiverse 버전에서는 연결 전환 기능을 쓸 수 없습니다."]));
+      box.append(el("div", { class: "sp-muted" }, [genDenied() ? "`generation` 권한이 허용되지 않아 연결 전환을 쓸 수 없습니다." : "이 Lumiverse 버전에서는 연결 전환 기능을 쓸 수 없습니다."]));
     const connSel = el("select", { disabled: !canSwitch(), onChange: (e) => {
       f.connectionId = e.target.value;
     } }, [el("option", { value: "", selected: !f.connectionId }, ["바꾸지 않음"]), ...conns.map((c) => el("option", { value: c.id, selected: c.id === f.connectionId }, [c.model ? `${c.name} (${c.model})` : c.name]))]);
@@ -426,7 +560,7 @@ function setup(ctx) {
       panel.replaceChildren(el("div", { class: "sp-muted" }, ["불러오는 중…"]));
       return;
     }
-    const sel = el("select", { onChange: (e) => pickPreset(e.target.value) }, st.presets.map((p) => el("option", { value: p.id, selected: p.id === selected }, [p.id === st.activePresetId ? `${p.name} (현재)` : p.name])));
+    const sel = el("select", { onChange: (e) => pickPreset(e.target.value) }, st.presets.map((p) => el("option", { value: p.id, selected: p.id === selected }, [p.id === currentActive() ? `${p.name} (현재)` : p.name])));
     kids.push(el("div", { class: "sp-field" }, [el("label", { class: "sp-h" }, ["대상 프리셋"]), sel]));
     kids.push(el("div", { class: "sp-muted" }, ["프리셋의 블록과 정규식은 바꾸지 않고, 샘플러 값과 프롬프트 변수 값만 바꿉니다."]));
     if (status)
@@ -438,7 +572,7 @@ function setup(ctx) {
         form = newForm(null);
         render();
       }, "sp-primary", !detail),
-      backup ? btn(`되돌리기 (${backup.profileName})`, () => toBackend({ type: "undo", presetId: selected, editorPresetId: editorPresetId() })) : null
+      backup ? btn(`되돌리기 (${backup.profileName})`, () => toBackend({ type: "undo", presetId: selected, ...editorInfo() })) : null
     ]));
     if (form)
       kids.push(renderForm(form));
@@ -470,8 +604,11 @@ function setup(ctx) {
       el("input", { type: "checkbox", checked: st.settings.autoApply && canAuto(), disabled: !canAuto(), onChange: (e) => toBackend({ type: "set_settings", settings: { autoApply: e.target.checked } }) }),
       "연결을 바꾸면 그 연결에 묶인 프로필 자동 적용"
     ]));
-    if (!canAuto())
-      kids.push(el("div", { class: "sp-muted" }, ["이 Lumiverse 버전은 연결 변경 알림을 주지 않아 자동 적용을 쓸 수 없습니다."]));
+    if (!canAuto()) {
+      kids.push(el("div", { class: "sp-status sp-warning" }, [
+        genDenied() ? "`generation` 권한이 허용되지 않아 연결 전환과 자동 적용을 쓸 수 없습니다. 확장 설정에서 권한을 허용하세요." : typeof connApi()?.subscribe !== "function" || typeof connApi()?.getActive !== "function" ? "이 Lumiverse 버전은 연결 변경 알림을 주지 않아 자동 적용을 쓸 수 없습니다." : '이 Lumiverse에서는 현재 프리셋을 알 수 없어 자동 적용을 쓸 수 없습니다. 프로필의 "적용" 버튼을 쓰세요.'
+      ]));
+    }
     const file = el("input", { type: "file", accept: ".json,application/json", style: "display:none", onChange: (e) => {
       const f = e.target.files?.[0];
       if (!f)
@@ -497,7 +634,8 @@ function setup(ctx) {
         st = msg;
         const stillThere = selected && st.presets.some((p) => p.id === selected);
         if (!stillThere) {
-          const next = (st.activePresetId && st.presets.some((p) => p.id === st.activePresetId) ? st.activePresetId : st.presets[0]?.id) ?? null;
+          const act = currentActive();
+          const next = (act && st.presets.some((p) => p.id === act) ? act : st.presets[0]?.id) ?? null;
           if (next) {
             pickPreset(next);
             return;
@@ -525,6 +663,9 @@ function setup(ctx) {
         render();
         switchConn(msg.switchConnection);
         return;
+      case "editor_patch":
+        runEditorPatch(msg.presetId, { set: msg.set, remove: msg.remove }).then((r) => toBackend({ type: "editor_reply", reqId: msg.reqId, ok: true, changed: r.changed, prev: r.prev }), (e) => toBackend({ type: "editor_reply", reqId: msg.reqId, ok: false, error: e instanceof Error ? e.message : String(e) }));
+        return;
       case "export": {
         const url = URL.createObjectURL(new Blob([msg.text], { type: "application/json" }));
         const a = el("a", { href: url, download: msg.filename });
@@ -542,6 +683,7 @@ function setup(ctx) {
     offBackend();
     offActivate();
     offSub?.();
+    offActive?.();
     if (debounce)
       clearTimeout(debounce);
     tab.destroy();
@@ -550,6 +692,7 @@ function setup(ctx) {
   };
 }
 export {
+  checkVariableShape,
   parseSampler,
   parseVariable,
   setup,

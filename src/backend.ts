@@ -3,10 +3,11 @@
 declare const spindle: import('lumiverse-spindle-types').SpindleAPI;
 
 import {
-  applyProfile, describePreset, editorBlocks, samplerDisabledWarning, exportProfiles, importProfiles, normalizeProfile, normalizeStore, uniqueName, undoBackup,
-  type CommitResult, type PresetHost, type PresetLike,
+  applyProfile, applyProfileViaEditor, describePreset, resolveActive, writeRoute, samplerDisabledWarning, exportProfiles, importProfiles, normalizeProfile, normalizeStore,
+  uniqueName, undoBackup, undoBackupViaEditor,
+  type CommitResult, type EditorSampler, type PresetHost, type PresetLike,
 } from './core';
-import { type Profile, type Store, type StateMsg, type ToBackend, type ToFrontend, newId } from './shared';
+import { type EditorInfo, type Profile, type Store, type StateMsg, type ToBackend, type ToFrontend, newId } from './shared';
 
 const STORE_PATH = 'profiles.json';
 
@@ -59,25 +60,46 @@ async function listPresets(userId: string, refresh: boolean): Promise<Array<{ id
   return out;
 }
 
-async function active(userId: string, chatId: string | null): Promise<{ id: string | null; source: string | null }> {
-  try {
-    const a = await spindle.presets.getActive(chatId ?? undefined, userId);
-    return { id: a.preset_id ?? null, source: a.source ?? null };
-  } catch {
-    return { id: null, source: null };
+// Which preset is active. The worker runtime of some hosts (1.2.5) has no presets.getActive, so the frontend reads the
+// active preset id from its own state (`loom.activePresetId`) and sends it as `hint`: undefined = the frontend could not tell.
+// getActive, when the host has it, only adds the binding source (and answers when there is no hint).
+const lastHint = new Map<string, string | null>();
+
+async function active(userId: string, chatId: string | null, hint?: string | null): Promise<{ id: string | null; source: string | null; known: boolean }> {
+  if (hint !== undefined) lastHint.set(userId, hint);
+  let api: { preset_id?: string | null; source?: string | null } | null = null;
+  const getActive = (spindle.presets as { getActive?: (chatId?: string, userId?: string) => Promise<{ preset_id?: string | null; source?: string | null }> }).getActive;
+  if (typeof getActive === 'function') {
+    try { api = await getActive.call(spindle.presets, chatId ?? undefined, userId); } catch { /* host without a working call: use the hint */ }
   }
+  return resolveActive(hint, api, lastHint.get(userId));
 }
 
 const lastChat = new Map<string, string>();
 
-async function stateMsg(userId: string, chatIdIn: string | null, store?: Store, refreshList = false): Promise<StateMsg> {
+// Requests to the frontend to change the open editor's draft; answered by an `editor_reply` message.
+const editorWaits = new Map<string, { resolve: (v: { changed: boolean; prev: Record<string, import('./shared').Prev> }) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+
+function askEditor(userId: string, sessionId: string | undefined, presetId: string): EditorSampler {
+  return (patch) => new Promise((resolve, reject) => {
+    if (!sessionId) { reject(new Error('편집기를 가진 화면을 찾을 수 없습니다.')); return; }
+    const reqId = newId('ed');
+    const timer = setTimeout(() => { editorWaits.delete(reqId); reject(new Error('편집기가 시간 안에 응답하지 않았습니다.')); }, 15000);
+    editorWaits.set(reqId, { resolve, reject, timer });
+    send({ type: 'editor_patch', reqId, presetId, set: patch.set, remove: patch.remove }, userId, sessionId);
+  });
+}
+
+const EDITOR_VAR_NOTE = '편집기가 이 프리셋을 열어 두고 있어, 프롬프트 변수 값은 편집기를 다시 열 때까지 화면에 옛 값으로 보일 수 있습니다(저장된 값은 바뀌었고 편집기에서 다른 값을 고쳐도 되돌려지지 않습니다).';
+
+async function stateMsg(userId: string, chatIdIn: string | null, store?: Store, refreshList = false, hint?: string | null): Promise<StateMsg> {
   if (chatIdIn) lastChat.set(userId, chatIdIn);
   const chatId = chatIdIn ?? lastChat.get(userId) ?? null;
   const s = store ?? (await loadStore(userId));
-  const [presets, act] = await Promise.all([listPresets(userId, refreshList).catch(() => presetCache.get(userId) ?? []), active(userId, chatId)]);
+  const [presets, act] = await Promise.all([listPresets(userId, refreshList).catch(() => presetCache.get(userId) ?? []), active(userId, chatId, hint)]);
   return {
     type: 'state', profiles: s.profiles, backups: s.backups, settings: s.settings,
-    presets, activePresetId: act.id, activeSource: act.source,
+    presets, activePresetId: act.id, activeSource: act.source, activeAvailable: act.known,
   };
 }
 
@@ -98,18 +120,30 @@ function describeResult(r: CommitResult, what: string): { level: 'info' | 'warni
 
 async function doApply(
   userId: string, sessionId: string | undefined, store: Store, profile: Profile,
-  chatId: string | null, activeConnectionId: string | null, switched: boolean, auto: boolean, editorPresetId?: string | null,
+  chatId: string | null, activeConnectionId: string | null, switched: boolean, auto: boolean, ed: EditorInfo = {}, activeHint?: string | null,
 ): Promise<void> {
-  if (editorBlocks(editorPresetId, profile.presetId)) {
+  const route = writeRoute(ed, profile.presetId, !!sessionId);
+  const editorOpen = route === 'editor';
+  if (route === 'refuse') {
     const text = auto
-      ? `'${profile.name}' 자동 적용을 건너뛰었습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 직접 적용하세요.`
-      : `'${profile.name}' 적용을 취소했습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있어, 적용값이 편집기의 옛 값에 덮일 수 있습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 다시 적용하세요.`;
+      ? `'${profile.name}' 자동 적용을 건너뛰었습니다: 이 Lumiverse의 프리셋 편집기는 확장이 값을 넣을 수 없어, 열어 둔 프리셋에는 적용할 수 없습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 직접 적용하세요.`
+      : `'${profile.name}' 적용을 취소했습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있는데 이 Lumiverse는 편집기를 통한 적용을 지원하지 않아, 적용값이 편집기의 옛 값에 덮일 수 있습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 다시 적용하세요.`;
     if (auto) spindle.toast.warning(text, { userId });
     send({ type: 'result', level: 'warning', text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
     return;
   }
   const target = switched ? profile.connectionId : null;
-  const r = await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
+  let r: CommitResult;
+  try {
+    r = editorOpen
+      ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId))
+      : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
+  } catch (e) {
+    const text = `'${profile.name}' ${auto ? '자동 ' : ''}적용에 실패했습니다: ${e instanceof Error ? e.message : String(e)}`;
+    if (auto) spindle.toast.error(text.slice(0, 500), { userId });
+    send({ type: 'result', level: 'error', text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
+    return;
+  }
   await saveStore(userId, store);
   const d = describeResult(r, auto ? `'${profile.name}' 자동 적용` : `'${profile.name}' 적용`);
   let text = d.text;
@@ -121,8 +155,9 @@ async function doApply(
       level = 'warning';
     }
   }
+  if (editorOpen && r.status === 'applied' && Object.keys(profile.variables).length) text += `\n${EDITOR_VAR_NOTE}`;
   if ((r.status === 'applied' || r.status === 'noop') && Object.keys(profile.variables).length) {
-    const act = await active(userId, chatId);
+    const act = await active(userId, chatId, activeHint);
     if (act.source && act.source !== 'none') {
       text += `\n이 채팅에는 프리셋 프로필 바인딩(${SOURCE_LABEL[act.source] ?? act.source})이 있어, 프롬프트 변수 값이 그 바인딩 값에 가려질 수 있습니다.`;
       level = 'warning';
@@ -130,13 +165,13 @@ async function doApply(
   }
   if (auto && (r.status !== 'noop' || level === 'warning')) spindle.toast[level](text.slice(0, 500), { userId });
   send({ type: 'result', level, text, presetId: profile.presetId, switchConnection: r.status === 'applied' || r.status === 'noop' ? target : undefined }, userId, auto ? undefined : sessionId);
-  send(await stateMsg(userId, chatId, store), userId, sessionId);
+  send(await stateMsg(userId, chatId, store, false, activeHint), userId, sessionId);
 }
 
 async function handle(msg: ToBackend, userId: string, sessionId: string | undefined): Promise<void> {
   switch (msg.type) {
     case 'load':
-      send(await stateMsg(userId, msg.chatId, undefined, true), userId, sessionId);
+      send(await stateMsg(userId, msg.chatId, undefined, true, msg.activePresetId), userId, sessionId);
       return;
 
     case 'detail': {
@@ -188,7 +223,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
           send({ type: 'result', level: 'error', text: '프로필을 찾을 수 없습니다.' }, userId, sessionId);
           return;
         }
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false, msg.editorPresetId);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false, msg);
       });
       return;
 
@@ -196,11 +231,17 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
       await serial(userId, async () => {
         const store = await loadStore(userId);
         if (!store.settings.autoApply || !msg.connectionId) return;
-        const act = await active(userId, msg.chatId);
+        const act = await active(userId, msg.chatId, msg.activePresetId);
+        if (!act.known) {
+          if (store.profiles.some((p) => p.autoConnectionIds.includes(msg.connectionId!))) {
+            spindle.toast.warning('설정 프로필 자동 적용을 건너뛰었습니다: 이 Lumiverse에서는 현재 프리셋을 알 수 없어 자동 적용을 쓸 수 없습니다. 프로필의 "적용" 버튼을 쓰세요.', { userId });
+          }
+          return;
+        }
         if (!act.id) return;
         const profile = store.profiles.find((p) => p.presetId === act.id && p.autoConnectionIds.includes(msg.connectionId!));
         if (!profile) return;
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true, msg.editorPresetId);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true, msg, msg.activePresetId);
       });
       return;
 
@@ -208,19 +249,39 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
       await serial(userId, async () => {
         const store = await loadStore(userId);
         const backup = store.backups[msg.presetId];
-        if (editorBlocks(msg.editorPresetId, msg.presetId)) {
-          send({ type: 'result', level: 'warning', text: '되돌리기를 취소했습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 다시 시도하세요.', presetId: msg.presetId }, userId, sessionId);
+        const route = writeRoute(msg, msg.presetId, !!sessionId);
+        const editorOpen = route === 'editor';
+        if (route === 'refuse') {
+          send({ type: 'result', level: 'warning', text: '되돌리기를 취소했습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있는데 이 Lumiverse는 편집기를 통한 적용을 지원하지 않습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 다시 시도하세요.', presetId: msg.presetId }, userId, sessionId);
           return;
         }
-        const r = await undoBackup(hostFor(userId), store, msg.presetId);
+        let r: CommitResult;
+        try {
+          r = editorOpen
+            ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId))
+            : await undoBackup(hostFor(userId), store, msg.presetId);
+        } catch (e) {
+          send({ type: 'result', level: 'error', text: `되돌리기에 실패했습니다: ${e instanceof Error ? e.message : String(e)}`, presetId: msg.presetId }, userId, sessionId);
+          return;
+        }
         await saveStore(userId, store);
         const d = describeResult(r, '되돌림');
-        const text = r.status === 'applied' ? '직전 값으로 되돌렸습니다.' : r.status === 'missing' && !backup ? '되돌릴 백업이 없습니다.' : d.text;
+        const text = r.status === 'applied' ? `직전 값으로 되돌렸습니다.${editorOpen && backup && Object.keys(backup.variables).length ? `\n${EDITOR_VAR_NOTE}` : ''}` : r.status === 'missing' && !backup ? '되돌릴 백업이 없습니다.' : d.text;
         const ok = r.status === 'applied' || r.status === 'noop';
         send({ type: 'result', level: d.level, text, presetId: msg.presetId, switchConnection: ok && backup?.connectionSwitchedTo ? backup.connectionBefore : undefined }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
       return;
+
+    case 'editor_reply': {
+      const w = editorWaits.get(msg.reqId);
+      if (!w) return;
+      editorWaits.delete(msg.reqId);
+      clearTimeout(w.timer);
+      if (msg.ok) w.resolve({ changed: msg.changed === true, prev: msg.prev ?? {} });
+      else w.reject(new Error(msg.error || '편집기가 값을 받지 못했습니다.'));
+      return;
+    }
 
     case 'export': {
       const store = await loadStore(userId);

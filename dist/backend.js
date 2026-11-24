@@ -294,6 +294,19 @@ function samplerDisabledWarning(preset, profile) {
 function editorBlocks(editorPresetId, presetId) {
   return !!editorPresetId && editorPresetId === presetId;
 }
+function writeRoute(info, presetId, haveSession) {
+  if (!editorBlocks(info.editorPresetId, presetId))
+    return "direct";
+  return info.editorDraft && haveSession ? "editor" : "refuse";
+}
+function resolveActive(hint, api, last) {
+  let id = hint;
+  if (id === undefined && api)
+    id = api.preset_id ?? null;
+  if (id === undefined)
+    id = last;
+  return { id: id ?? null, source: api?.source ?? null, known: id !== undefined };
+}
 async function commit(host, presetId, planner, onPlan) {
   for (let attempt = 0;attempt < 2; attempt++) {
     const preset = await host.get(presetId);
@@ -350,6 +363,48 @@ async function undoBackup(host, store, presetId) {
   const result = await commit(host, presetId, (p) => planUndo(p, backup));
   if (result.status === "applied" || result.status === "noop")
     delete store.backups[presetId];
+  return result;
+}
+async function applyProfileViaEditor(host, store, profile, conn, editor) {
+  const ed = await editor({ set: profile.sampler, remove: [] });
+  let plan = null;
+  const result = await commit(host, profile.presetId, (p) => planApply(p, { sampler: {}, variables: profile.variables }), (pl) => {
+    plan = pl;
+  });
+  const varPlan = plan;
+  if (ed.changed || result.status === "applied") {
+    store.backups[profile.presetId] = {
+      presetId: profile.presetId,
+      profileId: profile.id,
+      profileName: profile.name,
+      at: Date.now(),
+      sampler: ed.prev,
+      variables: varPlan?.variables ?? {},
+      connectionBefore: conn.before,
+      connectionSwitchedTo: conn.switchedTo
+    };
+  }
+  if (result.status === "noop" && ed.changed)
+    return { status: "applied", preset: result.preset, skipped: result.skipped };
+  return result;
+}
+async function undoBackupViaEditor(host, store, presetId, editor) {
+  const backup = store.backups[presetId];
+  if (!backup)
+    return { status: "missing" };
+  const patch = { set: {}, remove: [] };
+  for (const [k, prev] of Object.entries(backup.sampler)) {
+    if (prev.had)
+      patch.set[k] = prev.value ?? null;
+    else
+      patch.remove.push(k);
+  }
+  const ed = await editor(patch);
+  const result = await commit(host, presetId, (p) => planUndo(p, { ...backup, sampler: {} }));
+  if (result.status === "applied" || result.status === "noop")
+    delete store.backups[presetId];
+  if (result.status === "noop" && ed.changed)
+    return { status: "applied", preset: result.preset, skipped: result.skipped };
   return result;
 }
 var EXPORT_FORMAT = "setting-profiles";
@@ -438,21 +493,43 @@ async function listPresets(userId, refresh) {
   presetCache.set(userId, out);
   return out;
 }
-async function active(userId, chatId) {
-  try {
-    const a = await spindle.presets.getActive(chatId ?? undefined, userId);
-    return { id: a.preset_id ?? null, source: a.source ?? null };
-  } catch {
-    return { id: null, source: null };
+var lastHint = new Map;
+async function active(userId, chatId, hint) {
+  if (hint !== undefined)
+    lastHint.set(userId, hint);
+  let api = null;
+  const getActive = spindle.presets.getActive;
+  if (typeof getActive === "function") {
+    try {
+      api = await getActive.call(spindle.presets, chatId ?? undefined, userId);
+    } catch {}
   }
+  return resolveActive(hint, api, lastHint.get(userId));
 }
 var lastChat = new Map;
-async function stateMsg(userId, chatIdIn, store, refreshList = false) {
+var editorWaits = new Map;
+function askEditor(userId, sessionId, presetId) {
+  return (patch) => new Promise((resolve, reject) => {
+    if (!sessionId) {
+      reject(new Error("\uD3B8\uC9D1\uAE30\uB97C \uAC00\uC9C4 \uD654\uBA74\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."));
+      return;
+    }
+    const reqId = newId("ed");
+    const timer = setTimeout(() => {
+      editorWaits.delete(reqId);
+      reject(new Error("\uD3B8\uC9D1\uAE30\uAC00 \uC2DC\uAC04 \uC548\uC5D0 \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4."));
+    }, 15000);
+    editorWaits.set(reqId, { resolve, reject, timer });
+    send({ type: "editor_patch", reqId, presetId, set: patch.set, remove: patch.remove }, userId, sessionId);
+  });
+}
+var EDITOR_VAR_NOTE = "\uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC5B4, \uD504\uB86C\uD504\uD2B8 \uBCC0\uC218 \uAC12\uC740 \uD3B8\uC9D1\uAE30\uB97C \uB2E4\uC2DC \uC5F4 \uB54C\uAE4C\uC9C0 \uD654\uBA74\uC5D0 \uC61B \uAC12\uC73C\uB85C \uBCF4\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4(\uC800\uC7A5\uB41C \uAC12\uC740 \uBC14\uB00C\uC5C8\uACE0 \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uB2E4\uB978 \uAC12\uC744 \uACE0\uCCD0\uB3C4 \uB418\uB3CC\uB824\uC9C0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4).";
+async function stateMsg(userId, chatIdIn, store, refreshList = false, hint) {
   if (chatIdIn)
     lastChat.set(userId, chatIdIn);
   const chatId = chatIdIn ?? lastChat.get(userId) ?? null;
   const s = store ?? await loadStore(userId);
-  const [presets, act] = await Promise.all([listPresets(userId, refreshList).catch(() => presetCache.get(userId) ?? []), active(userId, chatId)]);
+  const [presets, act] = await Promise.all([listPresets(userId, refreshList).catch(() => presetCache.get(userId) ?? []), active(userId, chatId, hint)]);
   return {
     type: "state",
     profiles: s.profiles,
@@ -460,7 +537,8 @@ async function stateMsg(userId, chatIdIn, store, refreshList = false) {
     settings: s.settings,
     presets,
     activePresetId: act.id,
-    activeSource: act.source
+    activeSource: act.source,
+    activeAvailable: act.known
   };
 }
 function describeResult(r, what) {
@@ -477,16 +555,27 @@ function describeResult(r, what) {
       return { level: "error", text: "\uB2E4\uB978 \uACF3\uC5D0\uC11C \uD504\uB9AC\uC14B\uC774 \uBC14\uB00C\uC5B4 \uC801\uC6A9\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694." };
   }
 }
-async function doApply(userId, sessionId, store, profile, chatId, activeConnectionId, switched, auto, editorPresetId) {
-  if (editorBlocks(editorPresetId, profile.presetId)) {
-    const text = auto ? `'${profile.name}' \uC790\uB3D9 \uC801\uC6A9\uC744 \uAC74\uB108\uB6F0\uC5C8\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uC9C1\uC811 \uC801\uC6A9\uD558\uC138\uC694.` : `'${profile.name}' \uC801\uC6A9\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC5B4, \uC801\uC6A9\uAC12\uC774 \uD3B8\uC9D1\uAE30\uC758 \uC61B \uAC12\uC5D0 \uB36E\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC801\uC6A9\uD558\uC138\uC694.`;
+async function doApply(userId, sessionId, store, profile, chatId, activeConnectionId, switched, auto, ed = {}, activeHint) {
+  const route = writeRoute(ed, profile.presetId, !!sessionId);
+  const editorOpen = route === "editor";
+  if (route === "refuse") {
+    const text = auto ? `'${profile.name}' \uC790\uB3D9 \uC801\uC6A9\uC744 \uAC74\uB108\uB6F0\uC5C8\uC2B5\uB2C8\uB2E4: \uC774 Lumiverse\uC758 \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uB294 \uD655\uC7A5\uC774 \uAC12\uC744 \uB123\uC744 \uC218 \uC5C6\uC5B4, \uC5F4\uC5B4 \uB454 \uD504\uB9AC\uC14B\uC5D0\uB294 \uC801\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uC9C1\uC811 \uC801\uC6A9\uD558\uC138\uC694.` : `'${profile.name}' \uC801\uC6A9\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uB294\uB370 \uC774 Lumiverse\uB294 \uD3B8\uC9D1\uAE30\uB97C \uD1B5\uD55C \uC801\uC6A9\uC744 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC544, \uC801\uC6A9\uAC12\uC774 \uD3B8\uC9D1\uAE30\uC758 \uC61B \uAC12\uC5D0 \uB36E\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC801\uC6A9\uD558\uC138\uC694.`;
     if (auto)
       spindle.toast.warning(text, { userId });
     send({ type: "result", level: "warning", text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
     return;
   }
   const target = switched ? profile.connectionId : null;
-  const r = await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
+  let r;
+  try {
+    r = editorOpen ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId)) : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
+  } catch (e) {
+    const text = `'${profile.name}' ${auto ? "\uC790\uB3D9 " : ""}\uC801\uC6A9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4: ${e instanceof Error ? e.message : String(e)}`;
+    if (auto)
+      spindle.toast.error(text.slice(0, 500), { userId });
+    send({ type: "result", level: "error", text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
+    return;
+  }
   await saveStore(userId, store);
   const d = describeResult(r, auto ? `'${profile.name}' \uC790\uB3D9 \uC801\uC6A9` : `'${profile.name}' \uC801\uC6A9`);
   let text = d.text;
@@ -499,8 +588,11 @@ ${w}`;
       level = "warning";
     }
   }
+  if (editorOpen && r.status === "applied" && Object.keys(profile.variables).length)
+    text += `
+${EDITOR_VAR_NOTE}`;
   if ((r.status === "applied" || r.status === "noop") && Object.keys(profile.variables).length) {
-    const act = await active(userId, chatId);
+    const act = await active(userId, chatId, activeHint);
     if (act.source && act.source !== "none") {
       text += `
 \uC774 \uCC44\uD305\uC5D0\uB294 \uD504\uB9AC\uC14B \uD504\uB85C\uD544 \uBC14\uC778\uB529(${SOURCE_LABEL[act.source] ?? act.source})\uC774 \uC788\uC5B4, \uD504\uB86C\uD504\uD2B8 \uBCC0\uC218 \uAC12\uC774 \uADF8 \uBC14\uC778\uB529 \uAC12\uC5D0 \uAC00\uB824\uC9C8 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`;
@@ -510,12 +602,12 @@ ${w}`;
   if (auto && (r.status !== "noop" || level === "warning"))
     spindle.toast[level](text.slice(0, 500), { userId });
   send({ type: "result", level, text, presetId: profile.presetId, switchConnection: r.status === "applied" || r.status === "noop" ? target : undefined }, userId, auto ? undefined : sessionId);
-  send(await stateMsg(userId, chatId, store), userId, sessionId);
+  send(await stateMsg(userId, chatId, store, false, activeHint), userId, sessionId);
 }
 async function handle(msg, userId, sessionId) {
   switch (msg.type) {
     case "load":
-      send(await stateMsg(userId, msg.chatId, undefined, true), userId, sessionId);
+      send(await stateMsg(userId, msg.chatId, undefined, true, msg.activePresetId), userId, sessionId);
       return;
     case "detail": {
       const p = await hostFor(userId).get(msg.presetId);
@@ -563,7 +655,7 @@ async function handle(msg, userId, sessionId) {
           send({ type: "result", level: "error", text: "\uD504\uB85C\uD544\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." }, userId, sessionId);
           return;
         }
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false, msg.editorPresetId);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false, msg);
       });
       return;
     case "connection_changed":
@@ -571,32 +663,59 @@ async function handle(msg, userId, sessionId) {
         const store = await loadStore(userId);
         if (!store.settings.autoApply || !msg.connectionId)
           return;
-        const act = await active(userId, msg.chatId);
+        const act = await active(userId, msg.chatId, msg.activePresetId);
+        if (!act.known) {
+          if (store.profiles.some((p) => p.autoConnectionIds.includes(msg.connectionId))) {
+            spindle.toast.warning('\uC124\uC815 \uD504\uB85C\uD544 \uC790\uB3D9 \uC801\uC6A9\uC744 \uAC74\uB108\uB6F0\uC5C8\uC2B5\uB2C8\uB2E4: \uC774 Lumiverse\uC5D0\uC11C\uB294 \uD604\uC7AC \uD504\uB9AC\uC14B\uC744 \uC54C \uC218 \uC5C6\uC5B4 \uC790\uB3D9 \uC801\uC6A9\uC744 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD504\uB85C\uD544\uC758 "\uC801\uC6A9" \uBC84\uD2BC\uC744 \uC4F0\uC138\uC694.', { userId });
+          }
+          return;
+        }
         if (!act.id)
           return;
         const profile = store.profiles.find((p) => p.presetId === act.id && p.autoConnectionIds.includes(msg.connectionId));
         if (!profile)
           return;
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true, msg.editorPresetId);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true, msg, msg.activePresetId);
       });
       return;
     case "undo":
       await serial(userId, async () => {
         const store = await loadStore(userId);
         const backup = store.backups[msg.presetId];
-        if (editorBlocks(msg.editorPresetId, msg.presetId)) {
-          send({ type: "result", level: "warning", text: "\uB418\uB3CC\uB9AC\uAE30\uB97C \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.", presetId: msg.presetId }, userId, sessionId);
+        const route = writeRoute(msg, msg.presetId, !!sessionId);
+        const editorOpen = route === "editor";
+        if (route === "refuse") {
+          send({ type: "result", level: "warning", text: "\uB418\uB3CC\uB9AC\uAE30\uB97C \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uB294\uB370 \uC774 Lumiverse\uB294 \uD3B8\uC9D1\uAE30\uB97C \uD1B5\uD55C \uC801\uC6A9\uC744 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.", presetId: msg.presetId }, userId, sessionId);
           return;
         }
-        const r = await undoBackup(hostFor(userId), store, msg.presetId);
+        let r;
+        try {
+          r = editorOpen ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId)) : await undoBackup(hostFor(userId), store, msg.presetId);
+        } catch (e) {
+          send({ type: "result", level: "error", text: `\uB418\uB3CC\uB9AC\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4: ${e instanceof Error ? e.message : String(e)}`, presetId: msg.presetId }, userId, sessionId);
+          return;
+        }
         await saveStore(userId, store);
         const d = describeResult(r, "\uB418\uB3CC\uB9BC");
-        const text = r.status === "applied" ? "\uC9C1\uC804 \uAC12\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4." : r.status === "missing" && !backup ? "\uB418\uB3CC\uB9B4 \uBC31\uC5C5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." : d.text;
+        const text = r.status === "applied" ? `\uC9C1\uC804 \uAC12\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.${editorOpen && backup && Object.keys(backup.variables).length ? `
+${EDITOR_VAR_NOTE}` : ""}` : r.status === "missing" && !backup ? "\uB418\uB3CC\uB9B4 \uBC31\uC5C5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." : d.text;
         const ok = r.status === "applied" || r.status === "noop";
         send({ type: "result", level: d.level, text, presetId: msg.presetId, switchConnection: ok && backup?.connectionSwitchedTo ? backup.connectionBefore : undefined }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
       return;
+    case "editor_reply": {
+      const w = editorWaits.get(msg.reqId);
+      if (!w)
+        return;
+      editorWaits.delete(msg.reqId);
+      clearTimeout(w.timer);
+      if (msg.ok)
+        w.resolve({ changed: msg.changed === true, prev: msg.prev ?? {} });
+      else
+        w.reject(new Error(msg.error || "\uD3B8\uC9D1\uAE30\uAC00 \uAC12\uC744 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4."));
+      return;
+    }
     case "export": {
       const store = await loadStore(userId);
       send({ type: "export", text: exportProfiles(store, msg.ids), filename: "setting-profiles.json" }, userId, sessionId);

@@ -101,16 +101,31 @@ export interface StateMsg {
   presets: Array<{ id: string; name: string }>;
   activePresetId: string | null;
   activeSource: string | null;
+  /** False when the host offers no way to tell which preset is active (auto-apply cannot work). */
+  activeAvailable: boolean;
+}
+
+/** What the frontend knows about the open preset editor. `draft` = the editor can take writes (updatePreset + flush). */
+export interface EditorInfo {
+  editorPresetId?: string | null;
+  editorDraft?: boolean;
+}
+
+/** Sampler change to run through the open editor's draft: set these keys, delete those. */
+export interface SamplerPatch {
+  set: Record<string, Json>;
+  remove: string[];
 }
 
 export type ToBackend =
-  | { type: 'load'; chatId: string | null }
+  | { type: 'load'; chatId: string | null; activePresetId?: string | null }
   | { type: 'detail'; presetId: string }
   | { type: 'save_profile'; profile: Partial<Profile> & { name: string; presetId: string } }
   | { type: 'delete'; id: string }
-  | { type: 'apply'; id: string; chatId: string | null; activeConnectionId: string | null; switched: boolean; editorPresetId?: string | null }
-  | { type: 'undo'; presetId: string; editorPresetId?: string | null }
-  | { type: 'connection_changed'; connectionId: string | null; chatId: string | null; editorPresetId?: string | null }
+  | ({ type: 'apply'; id: string; chatId: string | null; activeConnectionId: string | null; switched: boolean } & EditorInfo)
+  | ({ type: 'undo'; presetId: string } & EditorInfo)
+  | ({ type: 'connection_changed'; connectionId: string | null; chatId: string | null; activePresetId?: string | null } & EditorInfo)
+  | { type: 'editor_reply'; reqId: string; ok: boolean; error?: string; changed?: boolean; prev?: Record<string, Prev> }
   | { type: 'export'; ids?: string[] }
   | { type: 'import'; text: string }
   | { type: 'set_settings'; settings: Partial<Settings> }
@@ -120,7 +135,8 @@ export type ToFrontend =
   | StateMsg
   | { type: 'detail'; detail: PresetDetail | null; presetId: string }
   | { type: 'result'; level: 'info' | 'warning' | 'error'; text: string; switchConnection?: string | null; presetId?: string }
-  | { type: 'export'; text: string; filename: string };
+  | { type: 'export'; text: string; filename: string }
+  | ({ type: 'editor_patch'; reqId: string; presetId: string } & SamplerPatch);
 
 let counter = 0;
 /** Id generator that works in non-secure (http) contexts: no crypto.randomUUID. */

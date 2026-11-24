@@ -14,7 +14,7 @@ const subs = new Set<(v: { activeProfileId: string | null }) => void>();
 (window as unknown as Record<string, unknown>).__switchConn = (id: string) => { activeConn = id; subs.forEach((h) => h({ activeProfileId: id })); };
 (window as unknown as Record<string, unknown>).__conn = () => activeConn;
 const out = (m: ToFrontend) => queueMicrotask(() => handler(m));
-const state = (): ToFrontend => ({ type: 'state', profiles: store.profiles, backups: store.backups, settings: store.settings, presets: [{ id: 'p1', name: 'Synthetic Preset' }], activePresetId: 'p1', activeSource: 'none' });
+const state = (): ToFrontend => ({ type: 'state', profiles: store.profiles, backups: store.backups, settings: store.settings, presets: [{ id: 'p1', name: 'Synthetic Preset' }], activePresetId: 'p1', activeSource: 'none', activeAvailable: true });
 
 async function backend(m: ToBackend): Promise<void> {
   switch (m.type) {

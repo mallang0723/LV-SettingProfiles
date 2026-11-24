@@ -2,9 +2,10 @@
 // Mobile first (360px). No secure-context-only APIs (no crypto.randomUUID, no clipboard API).
 
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types';
+import { samplerPatch, samplerPrechecked, variablePrechecked } from './core';
 import {
   BOOLEAN_SAMPLER_KEYS, SAMPLER_KEYS, SAMPLER_LABELS,
-  type Json, type PresetDetail, type Profile, type StateMsg, type ToBackend, type ToFrontend, type VariableInfo,
+  type EditorInfo, type Json, type PresetDetail, type Prev, type Profile, type SamplerPatch, type StateMsg, type ToBackend, type ToFrontend, type VariableInfo,
 } from './shared';
 
 const CSS = `
@@ -82,6 +83,19 @@ export function parseVariable(type: string, text: string): Json {
   return JSON.parse(text) as Json;
 }
 
+/** Shape check for the JSON-typed variables, so a typo does not store a value the host would reject or ignore. */
+export function checkVariableShape(type: string, options: Array<{ id: string }>, v: Json): void {
+  if (type === 'range') {
+    if (!Array.isArray(v) || v.length !== 2 || v.some((x) => typeof x !== 'number' || !Number.isFinite(x))) throw new Error('[최소, 최대] 숫자 두 개여야 합니다 (예: [1, 5])');
+    if ((v[0] as number) > (v[1] as number)) throw new Error('최소가 최대보다 클 수 없습니다');
+  } else if (type === 'multiselect') {
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new Error('선택지 id의 배열이어야 합니다 (예: ["a","b"])');
+    const ids = new Set(options.map((o) => o.id));
+    const bad = (v as string[]).filter((x) => !ids.has(x));
+    if (ids.size && bad.length) throw new Error(`없는 선택지: ${bad.join(', ')}`);
+  }
+}
+
 export function parseSampler(key: string, text: string): Json {
   if (BOOLEAN_SAMPLER_KEYS.includes(key)) return text === 'true';
   if (text.trim() === '') return null;
@@ -115,8 +129,18 @@ export function setup(ctx: SpindleFrontendContext) {
     setActive?: (id: string | null) => void; setActiveAcknowledged?: (id: string | null) => unknown;
   };
   const connApi = (): ConnApi | undefined => (ctx as unknown as { connections?: ConnApi }).connections;
-  const canAuto = () => typeof connApi()?.subscribe === 'function' && typeof connApi()?.getActive === 'function';
-  const canSwitch = () => typeof connApi()?.setActiveAcknowledged === 'function' || typeof connApi()?.setActive === 'function';
+  // `generation` gates connection switching and change notifications. null = could not tell (treated as granted).
+  let granted: string[] | null = null;
+  const genDenied = () => granted !== null && !granted.includes('generation');
+  async function loadGranted(): Promise<void> {
+    try {
+      const g = await (ctx as unknown as { permissions?: { getGranted?: () => Promise<string[]> } }).permissions?.getGranted?.();
+      granted = Array.isArray(g) ? g : null;
+    } catch { granted = null; }
+    render();
+  }
+  const canAuto = () => !genDenied() && typeof connApi()?.subscribe === 'function' && typeof connApi()?.getActive === 'function' && activeKnown();
+  const canSwitch = () => !genDenied() && (typeof connApi()?.setActiveAcknowledged === 'function' || typeof connApi()?.setActive === 'function');
   const activeConn = (): string | null => {
     try { return connApi()?.getActive?.().activeProfileId ?? null; } catch { return null; }
   };
@@ -140,7 +164,7 @@ export function setup(ctx: SpindleFrontendContext) {
 
   let offSub: (() => void) | null = null;
   let lastConn: string | null = activeConn();
-  if (canAuto()) {
+  if (typeof connApi()?.subscribe === 'function' && typeof connApi()?.getActive === 'function') {
     offSub = connApi()!.subscribe!((v) => {
       const id = v?.activeProfileId ?? null;
       if (id === lastConn) return;
@@ -148,20 +172,66 @@ export function setup(ctx: SpindleFrontendContext) {
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => {
         if (Date.now() < suppressUntil || !st?.settings.autoApply) return;
-        toBackend({ type: 'connection_changed', connectionId: id, chatId: chatId(), editorPresetId: editorPresetId() });
+        if (genDenied()) return;
+        toBackend({ type: 'connection_changed', connectionId: id, chatId: chatId(), activePresetId: activeHint(), ...editorInfo() });
       }, 700);
     });
   }
 
-  // ---- preset editor guard ----
-  // An open editor keeps its own draft and writes whole fields back on its next save, which would undo an apply.
-  // So the backend refuses to write the preset the editor has open (manual apply, undo and auto-apply alike).
+  // ---- active preset ----
+  // Some hosts (1.2.5) give the worker no way to ask which preset is active, so read it from the page state.
+  // undefined = the host offers no such selector.
+  type StateApi = { get?: (id: string) => unknown; subscribe?: (id: string, h: (v: unknown) => void) => () => void };
+  const stateApi = (): StateApi | undefined => (ctx as unknown as { state?: StateApi }).state;
+  function activeHint(): string | null | undefined {
+    try {
+      const sa = stateApi();
+      if (typeof sa?.get !== 'function') return undefined;
+      const v = sa.get('loom.activePresetId');
+      return typeof v === 'string' && v ? v : null;
+    } catch { return undefined; }
+  }
+  const activeKnown = (): boolean => activeHint() !== undefined || !!st?.activeAvailable;
+  const currentActive = (): string | null => { const h = activeHint(); return h !== undefined ? h : (st?.activePresetId ?? null); };
+  let offActive: (() => void) | null = null;
+  try {
+    const sa = stateApi();
+    if (typeof sa?.subscribe === 'function') offActive = sa.subscribe('loom.activePresetId', () => render());
+  } catch { offActive = null; }
+
+  // ---- preset editor ----
+  // An open editor keeps its own draft and writes whole fields back on its next save. So while the editor has the
+  // preset open, sampler values go through the editor draft itself (updatePreset + flush) and the stored preset follows.
+  type EditorApi = {
+    getState(): { open: boolean; presetId: string | null; preset: { parameters: Record<string, unknown> } | null };
+    updatePreset?: (m: (d: { parameters: Record<string, unknown> }) => unknown, o?: { immediate?: boolean }) => void;
+    flush?: () => Promise<void>;
+  };
+  const editorApi = (): EditorApi | undefined => (ctx.ui as unknown as { presetEditor?: EditorApi }).presetEditor;
   function editorPresetId(): string | null {
     try {
-      const pe = (ctx.ui as unknown as { presetEditor?: { getState(): { open: boolean; presetId: string | null } } }).presetEditor;
-      const s = pe?.getState();
+      const s = editorApi()?.getState();
       return s?.open && s.presetId ? s.presetId : null;
     } catch { return null; }
+  }
+  function editorInfo(): EditorInfo {
+    const pe = editorApi();
+    return { editorPresetId: editorPresetId(), editorDraft: typeof pe?.updatePreset === 'function' && typeof pe?.flush === 'function' };
+  }
+  async function runEditorPatch(presetId: string, patch: SamplerPatch): Promise<{ changed: boolean; prev: Record<string, Prev> }> {
+    const pe = editorApi();
+    const s = pe?.getState();
+    if (!pe?.updatePreset || !pe.flush || !s?.open || s.presetId !== presetId || !s.preset) throw new Error('편집기가 이 프리셋을 더 이상 열고 있지 않습니다.');
+    let out: { changed: boolean; prev: Record<string, Prev> } | null = null;
+    pe.updatePreset((d) => {
+      const r = samplerPatch(d.parameters?.samplerOverrides, patch);
+      out = { changed: r.changed, prev: r.prev };
+      if (!r.changed) return d;
+      return { ...d, parameters: { ...d.parameters, samplerOverrides: r.next } };
+    }, { immediate: true });
+    if (!out) throw new Error('편집기가 값을 받지 않았습니다.');
+    await pe.flush();
+    return out;
   }
 
   function show(level: 'info' | 'warning' | 'error', text: string): void {
@@ -178,8 +248,9 @@ export function setup(ctx: SpindleFrontendContext) {
   tab.root.replaceChildren(panel);
 
   function reload(): void {
-    toBackend({ type: 'load', chatId: chatId() });
+    toBackend({ type: 'load', chatId: chatId(), activePresetId: activeHint() });
     void loadConns();
+    void loadGranted();
   }
   const offActivate = tab.onActivate(reload);
 
@@ -199,7 +270,7 @@ export function setup(ctx: SpindleFrontendContext) {
   }
 
   function doApply(p: Profile): void {
-    toBackend({ type: 'apply', id: p.id, chatId: chatId(), activeConnectionId: activeConn(), switched: !!p.connectionId && canSwitch(), editorPresetId: editorPresetId() });
+    toBackend({ type: 'apply', id: p.id, chatId: chatId(), activeConnectionId: activeConn(), switched: !!p.connectionId && canSwitch(), ...editorInfo() });
   }
 
   function newForm(profile: Profile | null): Form | null {
@@ -209,14 +280,14 @@ export function setup(ctx: SpindleFrontendContext) {
       const inProfile = profile ? Object.hasOwn(profile.sampler, k) : false;
       const cur = detail.sampler[k];
       const val = profile ? (inProfile ? profile.sampler[k] : cur) : cur;
-      sampler[k] = { on: profile ? inProfile : Object.hasOwn(detail.sampler, k) && k !== 'enabled' && k !== 'streaming', text: BOOLEAN_SAMPLER_KEYS.includes(k) ? String(val !== false) : valueToText(val) };
+      sampler[k] = { on: profile ? inProfile : samplerPrechecked(detail, k), text: BOOLEAN_SAMPLER_KEYS.includes(k) ? String(val !== false) : valueToText(val) };
     }
     const known = new Set(detail.variables.map((v) => `${v.blockId}\u0000${v.name}`));
     const vars: VarRow[] = detail.variables.map((info) => {
       const pv = profile?.variables[info.blockId]?.[info.name];
       const inProfile = pv !== undefined;
       const base = info.hasCurrent ? info.current : info.defaultValue;
-      return { info, on: profile ? inProfile : info.hasCurrent, text: valueToText(inProfile ? pv : base) };
+      return { info, on: profile ? inProfile : variablePrechecked(info), text: valueToText(inProfile ? pv : base) };
     });
     const orphans: Form['orphans'] = {};
     for (const [b, bucket] of Object.entries(profile?.variables ?? {})) {
@@ -242,7 +313,7 @@ export function setup(ctx: SpindleFrontendContext) {
       for (const r of f.vars) {
         if (!r.on) continue;
         let v: Json;
-        try { v = parseVariable(r.info.type, r.text); } catch (e) { throw new Error(`${r.info.label}: ${(e as Error).message}`); }
+        try { v = parseVariable(r.info.type, r.text); checkVariableShape(r.info.type, r.info.options, v); } catch (e) { throw new Error(`${r.info.label}: ${(e as Error).message}`); }
         (variables[r.info.blockId] ??= {})[r.info.name] = v;
       }
       const auto = [...f.auto].filter((id) => id === f.connectionId || conns.some((c) => c.id === id));
@@ -268,7 +339,7 @@ export function setup(ctx: SpindleFrontendContext) {
       el('label', {}, ['이름']),
       el('input', { type: 'text', value: f.name, maxLength: 80, placeholder: '예: 모델 A', onInput: (e: Event) => { f.name = (e.target as HTMLInputElement).value; } }),
     ]));
-    box.append(el('div', { class: 'sp-muted' }, ['체크한 항목만 적용됩니다. 체크하지 않은 값은 건드리지 않습니다. 숫자 칸을 비우면 "비움"으로 적용됩니다.']));
+    box.append(el('div', { class: 'sp-muted' }, ['체크한 항목만 적용됩니다. 처음에는 기본값과 다른 값만 체크되어 있습니다. 체크하지 않은 값은 건드리지 않습니다. 숫자 칸을 비우면 "비움"으로 적용됩니다.']));
 
     box.append(el('div', { class: 'sp-h' }, ['샘플러']));
     if (detail && detail.sampler.enabled !== true) {
@@ -325,7 +396,7 @@ export function setup(ctx: SpindleFrontendContext) {
     if (orphanCount) box.append(el('div', { class: 'sp-muted' }, [`프리셋에 없는 변수 ${orphanCount}개는 그대로 보존되며 적용 때 건너뜁니다.`]));
 
     box.append(el('div', { class: 'sp-h' }, ['연결 (선택)']));
-    if (!canSwitch()) box.append(el('div', { class: 'sp-muted' }, ['이 Lumiverse 버전에서는 연결 전환 기능을 쓸 수 없습니다.']));
+    if (!canSwitch()) box.append(el('div', { class: 'sp-muted' }, [genDenied() ? '`generation` 권한이 허용되지 않아 연결 전환을 쓸 수 없습니다.' : '이 Lumiverse 버전에서는 연결 전환 기능을 쓸 수 없습니다.']));
     const connSel = el('select', { disabled: !canSwitch(), onChange: (e: Event) => { f.connectionId = (e.target as HTMLSelectElement).value; } },
       [el('option', { value: '', selected: !f.connectionId }, ['바꾸지 않음']), ...conns.map((c) => el('option', { value: c.id, selected: c.id === f.connectionId }, [c.model ? `${c.name} (${c.model})` : c.name]))]);
     box.append(el('div', { class: 'sp-field' }, [el('label', {}, ['적용할 때 이 연결로 전환']), connSel]));
@@ -351,7 +422,7 @@ export function setup(ctx: SpindleFrontendContext) {
     }
     // Target preset
     const sel = el('select', { onChange: (e: Event) => pickPreset((e.target as HTMLSelectElement).value) },
-      st.presets.map((p) => el('option', { value: p.id, selected: p.id === selected }, [p.id === st!.activePresetId ? `${p.name} (현재)` : p.name])));
+      st.presets.map((p) => el('option', { value: p.id, selected: p.id === selected }, [p.id === currentActive() ? `${p.name} (현재)` : p.name])));
     kids.push(el('div', { class: 'sp-field' }, [el('label', { class: 'sp-h' }, ['대상 프리셋']), sel]));
     kids.push(el('div', { class: 'sp-muted' }, ['프리셋의 블록과 정규식은 바꾸지 않고, 샘플러 값과 프롬프트 변수 값만 바꿉니다.']));
 
@@ -361,7 +432,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const backup = selected ? st.backups[selected] : undefined;
     kids.push(el('div', { class: 'sp-row' }, [
       btn('현재 값으로 저장', () => { form = newForm(null); render(); }, 'sp-primary', !detail),
-      backup ? btn(`되돌리기 (${backup.profileName})`, () => toBackend({ type: 'undo', presetId: selected!, editorPresetId: editorPresetId() })) : null,
+      backup ? btn(`되돌리기 (${backup.profileName})`, () => toBackend({ type: 'undo', presetId: selected!, ...editorInfo() })) : null,
     ]));
     if (form) kids.push(renderForm(form));
 
@@ -386,7 +457,13 @@ export function setup(ctx: SpindleFrontendContext) {
       el('input', { type: 'checkbox', checked: st.settings.autoApply && canAuto(), disabled: !canAuto(), onChange: (e: Event) => toBackend({ type: 'set_settings', settings: { autoApply: (e.target as HTMLInputElement).checked } }) }),
       '연결을 바꾸면 그 연결에 묶인 프로필 자동 적용',
     ]));
-    if (!canAuto()) kids.push(el('div', { class: 'sp-muted' }, ['이 Lumiverse 버전은 연결 변경 알림을 주지 않아 자동 적용을 쓸 수 없습니다.']));
+    if (!canAuto()) {
+      kids.push(el('div', { class: 'sp-status sp-warning' }, [
+        genDenied() ? '`generation` 권한이 허용되지 않아 연결 전환과 자동 적용을 쓸 수 없습니다. 확장 설정에서 권한을 허용하세요.'
+          : typeof connApi()?.subscribe !== 'function' || typeof connApi()?.getActive !== 'function' ? '이 Lumiverse 버전은 연결 변경 알림을 주지 않아 자동 적용을 쓸 수 없습니다.'
+          : '이 Lumiverse에서는 현재 프리셋을 알 수 없어 자동 적용을 쓸 수 없습니다. 프로필의 "적용" 버튼을 쓰세요.',
+      ]));
+    }
     const file = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none', onChange: (e: Event) => {
       const f = (e.target as HTMLInputElement).files?.[0];
       if (!f) return;
@@ -410,7 +487,8 @@ export function setup(ctx: SpindleFrontendContext) {
         st = msg;
         const stillThere = selected && st.presets.some((p) => p.id === selected);
         if (!stillThere) {
-          const next = (st.activePresetId && st.presets.some((p) => p.id === st!.activePresetId) ? st.activePresetId : st.presets[0]?.id) ?? null;
+          const act = currentActive();
+          const next = (act && st.presets.some((p) => p.id === act) ? act : st.presets[0]?.id) ?? null;
           if (next) { pickPreset(next); return; }
           selected = null;
         }
@@ -428,6 +506,12 @@ export function setup(ctx: SpindleFrontendContext) {
         render();
         void switchConn(msg.switchConnection);
         return;
+      case 'editor_patch':
+        runEditorPatch(msg.presetId, { set: msg.set, remove: msg.remove }).then(
+          (r) => toBackend({ type: 'editor_reply', reqId: msg.reqId, ok: true, changed: r.changed, prev: r.prev }),
+          (e) => toBackend({ type: 'editor_reply', reqId: msg.reqId, ok: false, error: e instanceof Error ? e.message : String(e) }),
+        );
+        return;
       case 'export': {
         const url = URL.createObjectURL(new Blob([msg.text], { type: 'application/json' }));
         const a = el('a', { href: url, download: msg.filename });
@@ -442,7 +526,7 @@ export function setup(ctx: SpindleFrontendContext) {
   reload();
 
   return () => {
-    offBackend(); offActivate(); offSub?.();
+    offBackend(); offActivate(); offSub?.(); offActive?.();
     if (debounce) clearTimeout(debounce);
     tab.destroy(); removeStyle(); ctx.dom.cleanup();
   };
