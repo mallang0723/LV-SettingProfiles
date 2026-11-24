@@ -148,22 +148,20 @@ export function setup(ctx: SpindleFrontendContext) {
       if (debounce) clearTimeout(debounce);
       debounce = setTimeout(() => {
         if (Date.now() < suppressUntil || !st?.settings.autoApply) return;
-        toBackend({ type: 'connection_changed', connectionId: id, chatId: chatId() });
+        toBackend({ type: 'connection_changed', connectionId: id, chatId: chatId(), editorPresetId: editorPresetId() });
       }, 700);
     });
   }
 
   // ---- preset editor guard ----
-  async function guardEditor(presetId: string): Promise<boolean> {
+  // An open editor keeps its own draft and writes whole fields back on its next save, which would undo an apply.
+  // So the backend refuses to write the preset the editor has open (manual apply, undo and auto-apply alike).
+  function editorPresetId(): string | null {
     try {
-      const pe = (ctx.ui as unknown as { presetEditor?: { getState(): { open: boolean; presetId: string | null }; flush(): Promise<void> } }).presetEditor;
+      const pe = (ctx.ui as unknown as { presetEditor?: { getState(): { open: boolean; presetId: string | null } } }).presetEditor;
       const s = pe?.getState();
-      if (s?.open && s.presetId === presetId) await pe!.flush();
-    } catch (e) {
-      show('error', '열려 있는 프리셋 편집기를 저장하지 못해 적용을 취소했습니다. 편집기를 닫고 다시 시도하세요.');
-      return false;
-    }
-    return true;
+      return s?.open && s.presetId ? s.presetId : null;
+    } catch { return null; }
   }
 
   function show(level: 'info' | 'warning' | 'error', text: string): void {
@@ -200,9 +198,8 @@ export function setup(ctx: SpindleFrontendContext) {
     return parts.join(' · ') || '비어 있음';
   }
 
-  async function doApply(p: Profile): Promise<void> {
-    if (!(await guardEditor(p.presetId))) return;
-    toBackend({ type: 'apply', id: p.id, chatId: chatId(), activeConnectionId: activeConn(), switched: !!p.connectionId && canSwitch() });
+  function doApply(p: Profile): void {
+    toBackend({ type: 'apply', id: p.id, chatId: chatId(), activeConnectionId: activeConn(), switched: !!p.connectionId && canSwitch(), editorPresetId: editorPresetId() });
   }
 
   function newForm(profile: Profile | null): Form | null {
@@ -274,6 +271,9 @@ export function setup(ctx: SpindleFrontendContext) {
     box.append(el('div', { class: 'sp-muted' }, ['체크한 항목만 적용됩니다. 체크하지 않은 값은 건드리지 않습니다. 숫자 칸을 비우면 "비움"으로 적용됩니다.']));
 
     box.append(el('div', { class: 'sp-h' }, ['샘플러']));
+    if (detail && detail.sampler.enabled !== true) {
+      box.append(el('div', { class: 'sp-status sp-warning' }, ['이 프리셋은 샘플러 사용이 꺼져 있습니다. 아래 "샘플러 값 사용 = 켬"을 함께 넣지 않으면 적용해도 생성에 반영되지 않습니다.']));
+    }
     for (const k of SAMPLER_KEYS) {
       const r = f.sampler[k]!;
       const input = BOOLEAN_SAMPLER_KEYS.includes(k)
@@ -361,7 +361,7 @@ export function setup(ctx: SpindleFrontendContext) {
     const backup = selected ? st.backups[selected] : undefined;
     kids.push(el('div', { class: 'sp-row' }, [
       btn('현재 값으로 저장', () => { form = newForm(null); render(); }, 'sp-primary', !detail),
-      backup ? btn(`되돌리기 (${backup.profileName})`, () => toBackend({ type: 'undo', presetId: selected! })) : null,
+      backup ? btn(`되돌리기 (${backup.profileName})`, () => toBackend({ type: 'undo', presetId: selected!, editorPresetId: editorPresetId() })) : null,
     ]));
     if (form) kids.push(renderForm(form));
 

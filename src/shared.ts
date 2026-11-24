@@ -108,9 +108,9 @@ export type ToBackend =
   | { type: 'detail'; presetId: string }
   | { type: 'save_profile'; profile: Partial<Profile> & { name: string; presetId: string } }
   | { type: 'delete'; id: string }
-  | { type: 'apply'; id: string; chatId: string | null; activeConnectionId: string | null; switched: boolean }
-  | { type: 'undo'; presetId: string }
-  | { type: 'connection_changed'; connectionId: string | null; chatId: string | null }
+  | { type: 'apply'; id: string; chatId: string | null; activeConnectionId: string | null; switched: boolean; editorPresetId?: string | null }
+  | { type: 'undo'; presetId: string; editorPresetId?: string | null }
+  | { type: 'connection_changed'; connectionId: string | null; chatId: string | null; editorPresetId?: string | null }
   | { type: 'export'; ids?: string[] }
   | { type: 'import'; text: string }
   | { type: 'set_settings'; settings: Partial<Settings> }

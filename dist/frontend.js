@@ -160,21 +160,18 @@ function setup(ctx) {
       debounce = setTimeout(() => {
         if (Date.now() < suppressUntil || !st?.settings.autoApply)
           return;
-        toBackend({ type: "connection_changed", connectionId: id, chatId: chatId() });
+        toBackend({ type: "connection_changed", connectionId: id, chatId: chatId(), editorPresetId: editorPresetId() });
       }, 700);
     });
   }
-  async function guardEditor(presetId) {
+  function editorPresetId() {
     try {
       const pe = ctx.ui.presetEditor;
       const s = pe?.getState();
-      if (s?.open && s.presetId === presetId)
-        await pe.flush();
-    } catch (e) {
-      show("error", "열려 있는 프리셋 편집기를 저장하지 못해 적용을 취소했습니다. 편집기를 닫고 다시 시도하세요.");
-      return false;
+      return s?.open && s.presetId ? s.presetId : null;
+    } catch {
+      return null;
     }
-    return true;
   }
   function show(level, text) {
     status = text;
@@ -218,10 +215,8 @@ function setup(ctx) {
       parts.push(`자동 ${p.autoConnectionIds.length}`);
     return parts.join(" · ") || "비어 있음";
   }
-  async function doApply(p) {
-    if (!await guardEditor(p.presetId))
-      return;
-    toBackend({ type: "apply", id: p.id, chatId: chatId(), activeConnectionId: activeConn(), switched: !!p.connectionId && canSwitch() });
+  function doApply(p) {
+    toBackend({ type: "apply", id: p.id, chatId: chatId(), activeConnectionId: activeConn(), switched: !!p.connectionId && canSwitch(), editorPresetId: editorPresetId() });
   }
   function newForm(profile) {
     if (!detail || !selected)
@@ -324,6 +319,9 @@ function setup(ctx) {
     ]));
     box.append(el("div", { class: "sp-muted" }, ['체크한 항목만 적용됩니다. 체크하지 않은 값은 건드리지 않습니다. 숫자 칸을 비우면 "비움"으로 적용됩니다.']));
     box.append(el("div", { class: "sp-h" }, ["샘플러"]));
+    if (detail && detail.sampler.enabled !== true) {
+      box.append(el("div", { class: "sp-status sp-warning" }, ['이 프리셋은 샘플러 사용이 꺼져 있습니다. 아래 "샘플러 값 사용 = 켬"을 함께 넣지 않으면 적용해도 생성에 반영되지 않습니다.']));
+    }
     for (const k of SAMPLER_KEYS) {
       const r = f.sampler[k];
       const input = BOOLEAN_SAMPLER_KEYS.includes(k) ? el("select", { onChange: (e) => {
@@ -440,7 +438,7 @@ function setup(ctx) {
         form = newForm(null);
         render();
       }, "sp-primary", !detail),
-      backup ? btn(`되돌리기 (${backup.profileName})`, () => toBackend({ type: "undo", presetId: selected })) : null
+      backup ? btn(`되돌리기 (${backup.profileName})`, () => toBackend({ type: "undo", presetId: selected, editorPresetId: editorPresetId() })) : null
     ]));
     if (form)
       kids.push(renderForm(form));

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
-  applyProfile, commit, describePreset, exportProfiles, importProfiles, normalizeStore, planApply, undoBackup,
+  applyProfile, commit, describePreset, editorBlocks, samplerDisabledWarning, exportProfiles, importProfiles, normalizeStore, planApply, undoBackup,
   type PresetLike,
 } from '../src/core';
 import { emptyStore, type Profile } from '../src/shared';
@@ -150,5 +150,45 @@ describe('form parsing', () => {
     expect(parseVariable('select', 'b')).toBe('b');
     expect(parseVariable('multiselect', '["a"]')).toEqual(['a']);
     expect(() => parseVariable('number', '')).toThrow();
+  });
+});
+
+describe('sampler switch and editor guard', () => {
+  test('warns when the preset has sampler use off (or no overrides) and the profile carries sampler values', async () => {
+    const host = new FakeHost();
+    host.preset.parameters.samplerOverrides = { enabled: false, temperature: 1 };
+    const r = await applyProfile(host, emptyStore(), profile(), { before: null, switchedTo: null });
+    expect(r.status).toBe('applied');
+    if (r.status !== 'applied') return;
+    expect(samplerDisabledWarning(r.preset, profile())).not.toBeNull();
+    expect(samplerDisabledWarning({ parameters: {} }, profile())).not.toBeNull();
+    // profile that turns it on, or that has no sampler values, or a preset that is already on: no warning
+    expect(samplerDisabledWarning({ parameters: { samplerOverrides: { enabled: true } } }, profile())).toBeNull();
+    expect(samplerDisabledWarning(r.preset, profile({ sampler: {} }))).toBeNull();
+    // the check runs on the preset as written by the apply, so a profile that turns it on clears the warning
+    const host2 = new FakeHost();
+    host2.preset.parameters.samplerOverrides = { enabled: false };
+    const p2 = profile({ sampler: { enabled: true, topP: 0.9 } });
+    const r2 = await applyProfile(host2, emptyStore(), p2, { before: null, switchedTo: null });
+    if (r2.status === 'applied') expect(samplerDisabledWarning(r2.preset, p2)).toBeNull();
+  });
+
+  test('the editor blocks writes only for the preset it has open', () => {
+    expect(editorBlocks('p1', 'p1')).toBe(true);
+    expect(editorBlocks('p2', 'p1')).toBe(false);
+    expect(editorBlocks(null, 'p1')).toBe(false);
+  });
+
+  test('undo that changes nothing does not write', async () => {
+    const host = new FakeHost();
+    const store = emptyStore();
+    await applyProfile(host, store, profile(), { before: null, switchedTo: null });
+    await undoBackup(host, store, 'p1');
+    store.backups.p1 = { presetId: 'p1', profileId: 'x', profileName: 'x', at: 1, sampler: { temperature: { had: true, value: 1 } }, variables: {}, connectionBefore: null, connectionSwitchedTo: null };
+    host.preset.parameters.samplerOverrides = { ...(host.preset.parameters.samplerOverrides as object), temperature: 1 };
+    const n = host.updates.length;
+    const r = await undoBackup(host, store, 'p1');
+    expect(r.status).toBe('noop');
+    expect(host.updates.length).toBe(n);
   });
 });

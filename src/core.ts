@@ -187,7 +187,7 @@ export function describePreset(p: PresetLike): PresetDetail {
 
 export type CommitResult =
   | { status: 'applied'; preset: PresetLike; skipped: string[] }
-  | { status: 'noop'; skipped: string[] }
+  | { status: 'noop'; skipped: string[]; preset: PresetLike }
   | { status: 'missing' }
   | { status: 'conflict' };
 
@@ -268,7 +268,7 @@ export function planUndo(p: PresetLike, backup: Backup): Plan {
       else delete so[k];
     }
     params.samplerOverrides = so;
-    plan.parameters = params;
+    if (!deepEqual(params, p.parameters ?? {})) plan.parameters = params;
   }
   if (Object.keys(backup.variables).length) {
     const meta = clone(p.metadata ?? {});
@@ -286,9 +286,25 @@ export function planUndo(p: PresetLike, backup: Backup): Plan {
       else delete pv[bid];
     }
     meta.promptVariables = pv;
-    plan.metadata = meta;
+    if (!deepEqual(meta, p.metadata ?? {})) plan.metadata = meta;
   }
   return plan;
+}
+
+/**
+ * When the profile carries sampler values but the preset's sampler switch is off, the host never sends
+ * them with a generation request. Returns a warning text in that case, otherwise null.
+ */
+export function samplerDisabledWarning(preset: Pick<PresetLike, 'parameters'>, profile: Pick<Profile, 'sampler'>): string | null {
+  if (!Object.keys(profile.sampler).some((k) => k !== 'enabled')) return null;
+  const so = preset.parameters?.samplerOverrides;
+  if (isObj(so) && so.enabled === true) return null;
+  return '이 프리셋은 샘플러 사용이 꺼져 있어, 적용한 샘플러 값이 생성에 반영되지 않습니다. 프리셋 편집기에서 샘플러를 켜거나, 프로필에 "샘플러 값 사용 = 켬"을 넣으세요.';
+}
+
+/** An open editor holds its own draft and would silently write old values back over an apply or undo. */
+export function editorBlocks(editorPresetId: string | null | undefined, presetId: string): boolean {
+  return !!editorPresetId && editorPresetId === presetId;
 }
 
 /**
@@ -307,7 +323,7 @@ export async function commit(
     const plan = planner(preset);
     if (!plan.parameters && !plan.metadata) {
       onPlan?.(plan, null);
-      return { status: 'noop', skipped: plan.skipped };
+      return { status: 'noop', skipped: plan.skipped, preset };
     }
     const payload: UpdatePayload = { expected_cache_revision: preset.cache_revision ?? 0 };
     if (plan.parameters) payload.parameters = plan.parameters;

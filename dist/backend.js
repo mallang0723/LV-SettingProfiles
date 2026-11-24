@@ -254,7 +254,8 @@ function planUndo(p, backup) {
         delete so[k];
     }
     params.samplerOverrides = so;
-    plan.parameters = params;
+    if (!deepEqual(params, p.parameters ?? {}))
+      plan.parameters = params;
   }
   if (Object.keys(backup.variables).length) {
     const meta = clone(p.metadata ?? {});
@@ -277,9 +278,21 @@ function planUndo(p, backup) {
         delete pv[bid];
     }
     meta.promptVariables = pv;
-    plan.metadata = meta;
+    if (!deepEqual(meta, p.metadata ?? {}))
+      plan.metadata = meta;
   }
   return plan;
+}
+function samplerDisabledWarning(preset, profile) {
+  if (!Object.keys(profile.sampler).some((k) => k !== "enabled"))
+    return null;
+  const so = preset.parameters?.samplerOverrides;
+  if (isObj(so) && so.enabled === true)
+    return null;
+  return '\uC774 \uD504\uB9AC\uC14B\uC740 \uC0D8\uD50C\uB7EC \uC0AC\uC6A9\uC774 \uAEBC\uC838 \uC788\uC5B4, \uC801\uC6A9\uD55C \uC0D8\uD50C\uB7EC \uAC12\uC774 \uC0DD\uC131\uC5D0 \uBC18\uC601\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uC0D8\uD50C\uB7EC\uB97C \uCF1C\uAC70\uB098, \uD504\uB85C\uD544\uC5D0 "\uC0D8\uD50C\uB7EC \uAC12 \uC0AC\uC6A9 = \uCF2C"\uC744 \uB123\uC73C\uC138\uC694.';
+}
+function editorBlocks(editorPresetId, presetId) {
+  return !!editorPresetId && editorPresetId === presetId;
 }
 async function commit(host, presetId, planner, onPlan) {
   for (let attempt = 0;attempt < 2; attempt++) {
@@ -289,7 +302,7 @@ async function commit(host, presetId, planner, onPlan) {
     const plan = planner(preset);
     if (!plan.parameters && !plan.metadata) {
       onPlan?.(plan, null);
-      return { status: "noop", skipped: plan.skipped };
+      return { status: "noop", skipped: plan.skipped, preset };
     }
     const payload = { expected_cache_revision: preset.cache_revision ?? 0 };
     if (plan.parameters)
@@ -415,9 +428,15 @@ function hostFor(userId) {
     }
   };
 }
-async function listPresets(userId) {
+var presetCache = new Map;
+async function listPresets(userId, refresh) {
+  const cached = presetCache.get(userId);
+  if (cached && !refresh)
+    return cached;
   const r = await spindle.presets.list({ limit: 200, userId });
-  return r.data.map((p) => ({ id: p.id, name: p.name }));
+  const out = r.data.map((p) => ({ id: p.id, name: p.name }));
+  presetCache.set(userId, out);
+  return out;
 }
 async function active(userId, chatId) {
   try {
@@ -428,12 +447,12 @@ async function active(userId, chatId) {
   }
 }
 var lastChat = new Map;
-async function stateMsg(userId, chatIdIn, store) {
+async function stateMsg(userId, chatIdIn, store, refreshList = false) {
   if (chatIdIn)
     lastChat.set(userId, chatIdIn);
   const chatId = chatIdIn ?? lastChat.get(userId) ?? null;
   const s = store ?? await loadStore(userId);
-  const [presets, act] = await Promise.all([listPresets(userId).catch(() => []), active(userId, chatId)]);
+  const [presets, act] = await Promise.all([listPresets(userId, refreshList).catch(() => presetCache.get(userId) ?? []), active(userId, chatId)]);
   return {
     type: "state",
     profiles: s.profiles,
@@ -458,13 +477,28 @@ function describeResult(r, what) {
       return { level: "error", text: "\uB2E4\uB978 \uACF3\uC5D0\uC11C \uD504\uB9AC\uC14B\uC774 \uBC14\uB00C\uC5B4 \uC801\uC6A9\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694." };
   }
 }
-async function doApply(userId, sessionId, store, profile, chatId, activeConnectionId, switched, auto) {
+async function doApply(userId, sessionId, store, profile, chatId, activeConnectionId, switched, auto, editorPresetId) {
+  if (editorBlocks(editorPresetId, profile.presetId)) {
+    const text = auto ? `'${profile.name}' \uC790\uB3D9 \uC801\uC6A9\uC744 \uAC74\uB108\uB6F0\uC5C8\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uC9C1\uC811 \uC801\uC6A9\uD558\uC138\uC694.` : `'${profile.name}' \uC801\uC6A9\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC5B4, \uC801\uC6A9\uAC12\uC774 \uD3B8\uC9D1\uAE30\uC758 \uC61B \uAC12\uC5D0 \uB36E\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC801\uC6A9\uD558\uC138\uC694.`;
+    if (auto)
+      spindle.toast.warning(text, { userId });
+    send({ type: "result", level: "warning", text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
+    return;
+  }
   const target = switched ? profile.connectionId : null;
   const r = await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
   await saveStore(userId, store);
   const d = describeResult(r, auto ? `'${profile.name}' \uC790\uB3D9 \uC801\uC6A9` : `'${profile.name}' \uC801\uC6A9`);
   let text = d.text;
   let level = d.level;
+  if (r.status === "applied" || r.status === "noop") {
+    const w = samplerDisabledWarning(r.preset, profile);
+    if (w) {
+      text += `
+${w}`;
+      level = "warning";
+    }
+  }
   if ((r.status === "applied" || r.status === "noop") && Object.keys(profile.variables).length) {
     const act = await active(userId, chatId);
     if (act.source && act.source !== "none") {
@@ -473,7 +507,7 @@ async function doApply(userId, sessionId, store, profile, chatId, activeConnecti
       level = "warning";
     }
   }
-  if (auto && r.status !== "noop")
+  if (auto && (r.status !== "noop" || level === "warning"))
     spindle.toast[level](text.slice(0, 500), { userId });
   send({ type: "result", level, text, presetId: profile.presetId, switchConnection: r.status === "applied" || r.status === "noop" ? target : undefined }, userId, auto ? undefined : sessionId);
   send(await stateMsg(userId, chatId, store), userId, sessionId);
@@ -481,7 +515,7 @@ async function doApply(userId, sessionId, store, profile, chatId, activeConnecti
 async function handle(msg, userId, sessionId) {
   switch (msg.type) {
     case "load":
-      send(await stateMsg(userId, msg.chatId), userId, sessionId);
+      send(await stateMsg(userId, msg.chatId, undefined, true), userId, sessionId);
       return;
     case "detail": {
       const p = await hostFor(userId).get(msg.presetId);
@@ -529,7 +563,7 @@ async function handle(msg, userId, sessionId) {
           send({ type: "result", level: "error", text: "\uD504\uB85C\uD544\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." }, userId, sessionId);
           return;
         }
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false, msg.editorPresetId);
       });
       return;
     case "connection_changed":
@@ -543,13 +577,17 @@ async function handle(msg, userId, sessionId) {
         const profile = store.profiles.find((p) => p.presetId === act.id && p.autoConnectionIds.includes(msg.connectionId));
         if (!profile)
           return;
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true, msg.editorPresetId);
       });
       return;
     case "undo":
       await serial(userId, async () => {
         const store = await loadStore(userId);
         const backup = store.backups[msg.presetId];
+        if (editorBlocks(msg.editorPresetId, msg.presetId)) {
+          send({ type: "result", level: "warning", text: "\uB418\uB3CC\uB9AC\uAE30\uB97C \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.", presetId: msg.presetId }, userId, sessionId);
+          return;
+        }
         const r = await undoBackup(hostFor(userId), store, msg.presetId);
         await saveStore(userId, store);
         const d = describeResult(r, "\uB418\uB3CC\uB9BC");

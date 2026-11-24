@@ -3,7 +3,7 @@
 declare const spindle: import('lumiverse-spindle-types').SpindleAPI;
 
 import {
-  applyProfile, describePreset, exportProfiles, importProfiles, normalizeProfile, normalizeStore, uniqueName, undoBackup,
+  applyProfile, describePreset, editorBlocks, samplerDisabledWarning, exportProfiles, importProfiles, normalizeProfile, normalizeStore, uniqueName, undoBackup,
   type CommitResult, type PresetHost, type PresetLike,
 } from './core';
 import { type Profile, type Store, type StateMsg, type ToBackend, type ToFrontend, newId } from './shared';
@@ -46,10 +46,17 @@ function hostFor(userId: string): PresetHost {
   };
 }
 
-async function listPresets(userId: string): Promise<Array<{ id: string; name: string }>> {
-  // One request: names only, capped by the host at 200.
+// The host has no summary endpoint: presets.list returns full rows (blocks included), capped at 200.
+// So the list is fetched once per tab open / explicit refresh and cached per user.
+const presetCache = new Map<string, Array<{ id: string; name: string }>>();
+
+async function listPresets(userId: string, refresh: boolean): Promise<Array<{ id: string; name: string }>> {
+  const cached = presetCache.get(userId);
+  if (cached && !refresh) return cached;
   const r = await spindle.presets.list({ limit: 200, userId });
-  return r.data.map((p) => ({ id: p.id, name: p.name }));
+  const out = r.data.map((p) => ({ id: p.id, name: p.name }));
+  presetCache.set(userId, out);
+  return out;
 }
 
 async function active(userId: string, chatId: string | null): Promise<{ id: string | null; source: string | null }> {
@@ -63,11 +70,11 @@ async function active(userId: string, chatId: string | null): Promise<{ id: stri
 
 const lastChat = new Map<string, string>();
 
-async function stateMsg(userId: string, chatIdIn: string | null, store?: Store): Promise<StateMsg> {
+async function stateMsg(userId: string, chatIdIn: string | null, store?: Store, refreshList = false): Promise<StateMsg> {
   if (chatIdIn) lastChat.set(userId, chatIdIn);
   const chatId = chatIdIn ?? lastChat.get(userId) ?? null;
   const s = store ?? (await loadStore(userId));
-  const [presets, act] = await Promise.all([listPresets(userId).catch(() => []), active(userId, chatId)]);
+  const [presets, act] = await Promise.all([listPresets(userId, refreshList).catch(() => presetCache.get(userId) ?? []), active(userId, chatId)]);
   return {
     type: 'state', profiles: s.profiles, backups: s.backups, settings: s.settings,
     presets, activePresetId: act.id, activeSource: act.source,
@@ -91,14 +98,29 @@ function describeResult(r: CommitResult, what: string): { level: 'info' | 'warni
 
 async function doApply(
   userId: string, sessionId: string | undefined, store: Store, profile: Profile,
-  chatId: string | null, activeConnectionId: string | null, switched: boolean, auto: boolean,
+  chatId: string | null, activeConnectionId: string | null, switched: boolean, auto: boolean, editorPresetId?: string | null,
 ): Promise<void> {
+  if (editorBlocks(editorPresetId, profile.presetId)) {
+    const text = auto
+      ? `'${profile.name}' 자동 적용을 건너뛰었습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 직접 적용하세요.`
+      : `'${profile.name}' 적용을 취소했습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있어, 적용값이 편집기의 옛 값에 덮일 수 있습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 다시 적용하세요.`;
+    if (auto) spindle.toast.warning(text, { userId });
+    send({ type: 'result', level: 'warning', text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
+    return;
+  }
   const target = switched ? profile.connectionId : null;
   const r = await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
   await saveStore(userId, store);
   const d = describeResult(r, auto ? `'${profile.name}' 자동 적용` : `'${profile.name}' 적용`);
   let text = d.text;
   let level = d.level;
+  if (r.status === 'applied' || r.status === 'noop') {
+    const w = samplerDisabledWarning(r.preset, profile);
+    if (w) {
+      text += `\n${w}`;
+      level = 'warning';
+    }
+  }
   if ((r.status === 'applied' || r.status === 'noop') && Object.keys(profile.variables).length) {
     const act = await active(userId, chatId);
     if (act.source && act.source !== 'none') {
@@ -106,7 +128,7 @@ async function doApply(
       level = 'warning';
     }
   }
-  if (auto && r.status !== 'noop') spindle.toast[level](text.slice(0, 500), { userId });
+  if (auto && (r.status !== 'noop' || level === 'warning')) spindle.toast[level](text.slice(0, 500), { userId });
   send({ type: 'result', level, text, presetId: profile.presetId, switchConnection: r.status === 'applied' || r.status === 'noop' ? target : undefined }, userId, auto ? undefined : sessionId);
   send(await stateMsg(userId, chatId, store), userId, sessionId);
 }
@@ -114,7 +136,7 @@ async function doApply(
 async function handle(msg: ToBackend, userId: string, sessionId: string | undefined): Promise<void> {
   switch (msg.type) {
     case 'load':
-      send(await stateMsg(userId, msg.chatId), userId, sessionId);
+      send(await stateMsg(userId, msg.chatId, undefined, true), userId, sessionId);
       return;
 
     case 'detail': {
@@ -166,7 +188,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
           send({ type: 'result', level: 'error', text: '프로필을 찾을 수 없습니다.' }, userId, sessionId);
           return;
         }
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false, msg.editorPresetId);
       });
       return;
 
@@ -178,7 +200,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
         if (!act.id) return;
         const profile = store.profiles.find((p) => p.presetId === act.id && p.autoConnectionIds.includes(msg.connectionId!));
         if (!profile) return;
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true, msg.editorPresetId);
       });
       return;
 
@@ -186,6 +208,10 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
       await serial(userId, async () => {
         const store = await loadStore(userId);
         const backup = store.backups[msg.presetId];
+        if (editorBlocks(msg.editorPresetId, msg.presetId)) {
+          send({ type: 'result', level: 'warning', text: '되돌리기를 취소했습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 다시 시도하세요.', presetId: msg.presetId }, userId, sessionId);
+          return;
+        }
         const r = await undoBackup(hostFor(userId), store, msg.presetId);
         await saveStore(userId, store);
         const d = describeResult(r, '되돌림');
