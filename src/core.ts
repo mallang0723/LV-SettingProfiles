@@ -421,15 +421,67 @@ export function samplerPatch(
 /** Runs a sampler patch through the open editor's draft and flushes it. Resolves after the host has persisted it. */
 export type EditorSampler = (patch: SamplerPatch) => Promise<{ changed: boolean; prev: Record<string, Prev> }>;
 
+/** Set when the editor path was not used and the write went straight to the host instead. `detected` = known beforehand, no editor call was made. */
+export interface EditorFallback { reason: string; detected: boolean }
+export type EditorCommitResult = CommitResult & { fallback?: EditorFallback };
+
+export const EDITOR_VAR_NOTE = '편집기가 이 프리셋을 열어 두고 있어, 프롬프트 변수 값은 페이지를 새로 고치거나 Loom에서 다른 프리셋을 골랐다가 돌아올 때까지 화면에 옛 값으로 보일 수 있습니다(저장된 값은 바뀌었고 편집기에서 다른 값을 고쳐도 되돌려지지 않습니다). 그 전에 편집기의 \'변수 설정\' 창에서 저장하면, 적용한 변수 값이 옛 값으로 되돌아갑니다.';
+
+const FALLBACK_STALE_NOTE = '이 경우 편집기에는 옛 샘플러 값이 남아 있습니다. 새로 고치기 전에 편집기에서 샘플러 값을 고쳐 저장하면, 편집기가 샘플러 묶음 전체를 자기가 가진 옛 값으로 써서 방금 적용한 샘플러 값이 되돌아갑니다(편집기는 고친 항목 묶음만 저장하므로 블록 등 다른 항목만 고치면 영향이 없습니다).';
+
+/** Text for a write that went straight to the server because the editor path was not usable. */
+export function fallbackNote(f: EditorFallback, varsChanged: boolean): string {
+  const lead = f.detected || /^Invalid Loom/.test(f.reason)
+    ? '편집기가 이 프리셋의 블록 형식을 받지 않아(프리셋 데이터 문제) 서버에 직접 적용했습니다.'
+    : `편집기를 통한 적용이 되지 않아(${f.reason.slice(0, 120)}) 서버에 직접 적용했습니다.`;
+  return `${lead} 편집기 화면은 새로 고치면 맞춰집니다.\n${FALLBACK_STALE_NOTE}${varsChanged ? `\n${EDITOR_VAR_NOTE}` : ''}`;
+}
+
+const LOOM_REQUIRED_BLOCK_KEYS = ['id', 'name', 'content', 'role', 'enabled', 'position', 'depth', 'marker', 'isLocked', 'color', 'injectionTrigger', 'group'];
+
+/**
+ * Whether the host's editor (Loom value validator, same rules in Lumiverse 1.2.5 and 1.3.0) would refuse these blocks.
+ * Only the cheap, certain conditions: a required key missing, a wrong-typed marker/color/group/injectionTrigger,
+ * a category with a group, or a group that is not the category currently open. Returns the first problem or null.
+ * The server accepts such blocks, so this only decides the route; it never changes a block.
+ */
+export function loomBlocksRejection(blocks: unknown): string | null {
+  if (!Array.isArray(blocks)) return null;
+  let category: string | null = null;
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (!isObj(b)) return `blocks[${i}]`;
+    for (const k of LOOM_REQUIRED_BLOCK_KEYS) if (!Object.hasOwn(b, k)) return `blocks[${i}].${k}`;
+    if (b.marker !== null && typeof b.marker !== 'string') return `blocks[${i}].marker`;
+    if (b.color !== null && typeof b.color !== 'string') return `blocks[${i}].color`;
+    if (!Array.isArray(b.injectionTrigger) || b.injectionTrigger.some((t) => typeof t !== 'string' || !t)) return `blocks[${i}].injectionTrigger`;
+    if (b.group !== null && (typeof b.group !== 'string' || !b.group)) return `blocks[${i}].group`;
+    if (b.marker === 'category') {
+      if (b.group !== null) return `blocks[${i}].group`;
+      category = typeof b.id === 'string' ? b.id : null;
+    } else if (b.group !== null) {
+      if (!category || category !== b.group) return `blocks[${i}].group`;
+    } else category = null;
+  }
+  return null;
+}
+
 /**
  * Apply while the preset editor has the same preset open. Sampler values go through the editor draft
  * (so the editor and the stored preset agree and a later editor save cannot undo them); prompt-variable values
  * cannot be carried by the draft, so they are written through the host with a fresh revision right after.
+ * If the editor refuses (`skipReason` known beforehand, or the call fails) the same change is written straight to the host.
  */
 export async function applyProfileViaEditor(
   host: PresetHost, store: Store, profile: Profile, conn: { before: string | null; switchedTo: string | null }, editor: EditorSampler,
-): Promise<CommitResult> {
-  const ed = await editor({ set: profile.sampler, remove: [] });
+  skipReason?: string | null,
+): Promise<EditorCommitResult> {
+  let fallback: EditorFallback | undefined = skipReason ? { reason: skipReason, detected: true } : undefined;
+  let ed: { changed: boolean; prev: Record<string, Prev> } = { changed: false, prev: {} };
+  if (!fallback) {
+    try { ed = await editor({ set: profile.sampler, remove: [] }); } catch (e) { fallback = { reason: e instanceof Error ? e.message : String(e), detected: false }; }
+  }
+  if (fallback) return { ...(await applyProfile(host, store, profile, conn)), fallback };
   let plan: Plan | null = null;
   const result = await commit(host, profile.presetId, (p) => planApply(p, { sampler: {}, variables: profile.variables }), (pl) => { plan = pl; });
   const varPlan = plan as Plan | null;
@@ -444,7 +496,9 @@ export async function applyProfileViaEditor(
   return result;
 }
 
-export async function undoBackupViaEditor(host: PresetHost, store: Store, presetId: string, editor: EditorSampler): Promise<CommitResult> {
+export async function undoBackupViaEditor(
+  host: PresetHost, store: Store, presetId: string, editor: EditorSampler, skipReason?: string | null,
+): Promise<EditorCommitResult> {
   const backup = store.backups[presetId];
   if (!backup) return { status: 'missing' };
   const patch: SamplerPatch = { set: {}, remove: [] };
@@ -452,7 +506,12 @@ export async function undoBackupViaEditor(host: PresetHost, store: Store, preset
     if (prev.had) patch.set[k] = prev.value ?? null;
     else patch.remove.push(k);
   }
-  const ed = await editor(patch);
+  let fallback: EditorFallback | undefined = skipReason ? { reason: skipReason, detected: true } : undefined;
+  let ed: { changed: boolean; prev: Record<string, Prev> } = { changed: false, prev: {} };
+  if (!fallback) {
+    try { ed = await editor(patch); } catch (e) { fallback = { reason: e instanceof Error ? e.message : String(e), detected: false }; }
+  }
+  if (fallback) return { ...(await undoBackup(host, store, presetId)), fallback };
   const result = await commit(host, presetId, (p) => planUndo(p, { ...backup, sampler: {} }));
   if (result.status === 'applied' || result.status === 'noop') delete store.backups[presetId];
   if (result.status === 'noop' && ed.changed) return { status: 'applied', preset: result.preset, skipped: result.skipped };

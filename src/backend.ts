@@ -3,9 +3,9 @@
 declare const spindle: import('lumiverse-spindle-types').SpindleAPI;
 
 import {
-  applyProfile, applyProfileViaEditor, describePreset, resolveActive, writeRoute, samplerDisabledWarning, exportProfiles, importProfiles, normalizeProfile, normalizeStore,
+  applyProfile, applyProfileViaEditor, fallbackNote, EDITOR_VAR_NOTE, describePreset, resolveActive, writeRoute, samplerDisabledWarning, exportProfiles, importProfiles, normalizeProfile, normalizeStore,
   uniqueName, undoBackup, undoBackupViaEditor,
-  type CommitResult, type EditorSampler, type PresetHost, type PresetLike,
+  type CommitResult, type EditorCommitResult, type EditorSampler, type PresetHost, type PresetLike,
 } from './core';
 import { type EditorInfo, type Profile, type Store, type StateMsg, type ToBackend, type ToFrontend, newId } from './shared';
 
@@ -90,7 +90,6 @@ function askEditor(userId: string, sessionId: string | undefined, presetId: stri
   });
 }
 
-const EDITOR_VAR_NOTE = '편집기가 이 프리셋을 열어 두고 있어, 프롬프트 변수 값은 페이지를 새로 고치거나 Loom에서 다른 프리셋을 골랐다가 돌아올 때까지 화면에 옛 값으로 보일 수 있습니다(저장된 값은 바뀌었고 편집기에서 다른 값을 고쳐도 되돌려지지 않습니다). 그 전에 편집기의 \'변수 설정\' 창에서 저장하면, 적용한 변수 값이 옛 값으로 되돌아갑니다.';
 
 async function stateMsg(userId: string, chatIdIn: string | null, store?: Store, refreshList = false, hint?: string | null): Promise<StateMsg> {
   if (chatIdIn) lastChat.set(userId, chatIdIn);
@@ -133,10 +132,10 @@ async function doApply(
     return;
   }
   const target = switched ? profile.connectionId : null;
-  let r: CommitResult;
+  let r: EditorCommitResult;
   try {
     r = editorOpen
-      ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId))
+      ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId), ed.editorBlocksReject)
       : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
   } catch (e) {
     const text = `'${profile.name}' ${auto ? '자동 ' : ''}적용에 실패했습니다: ${e instanceof Error ? e.message : String(e)}`;
@@ -155,7 +154,9 @@ async function doApply(
       level = 'warning';
     }
   }
-  if (editorOpen && r.status === 'applied' && Object.keys(profile.variables).length) text += `\n${EDITOR_VAR_NOTE}`;
+  if (r.fallback) {
+    if (r.status === 'applied') { text += `\n${fallbackNote(r.fallback, Object.keys(profile.variables).length > 0)}`; level = 'warning'; }
+  } else if (editorOpen && r.status === 'applied' && Object.keys(profile.variables).length) text += `\n${EDITOR_VAR_NOTE}`;
   if ((r.status === 'applied' || r.status === 'noop') && Object.keys(profile.variables).length) {
     const act = await active(userId, chatId, activeHint);
     if (act.source && act.source !== 'none') {
@@ -255,10 +256,10 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
           send({ type: 'result', level: 'warning', text: '되돌리기를 취소했습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있는데 이 Lumiverse는 편집기를 통한 적용을 지원하지 않습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 다시 시도하세요.', presetId: msg.presetId }, userId, sessionId);
           return;
         }
-        let r: CommitResult;
+        let r: EditorCommitResult;
         try {
           r = editorOpen
-            ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId))
+            ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId), msg.editorBlocksReject)
             : await undoBackup(hostFor(userId), store, msg.presetId);
         } catch (e) {
           send({ type: 'result', level: 'error', text: `되돌리기에 실패했습니다: ${e instanceof Error ? e.message : String(e)}`, presetId: msg.presetId }, userId, sessionId);
@@ -266,9 +267,10 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
         }
         await saveStore(userId, store);
         const d = describeResult(r, '되돌림');
-        const text = r.status === 'applied' ? `직전 값으로 되돌렸습니다.${editorOpen && backup && Object.keys(backup.variables).length ? `\n${EDITOR_VAR_NOTE}` : ''}` : r.status === 'missing' && !backup ? '되돌릴 백업이 없습니다.' : d.text;
+        const hasVars = !!backup && Object.keys(backup.variables).length > 0;
+        const text = r.status === 'applied' ? `직전 값으로 되돌렸습니다.${r.fallback ? `\n${fallbackNote(r.fallback, hasVars)}` : editorOpen && hasVars ? `\n${EDITOR_VAR_NOTE}` : ''}` : r.status === 'missing' && !backup ? '되돌릴 백업이 없습니다.' : d.text;
         const ok = r.status === 'applied' || r.status === 'noop';
-        send({ type: 'result', level: d.level, text, presetId: msg.presetId, switchConnection: ok && backup?.connectionSwitchedTo ? backup.connectionBefore : undefined }, userId, sessionId);
+        send({ type: 'result', level: r.fallback && r.status === 'applied' ? 'warning' : d.level, text, presetId: msg.presetId, switchConnection: ok && backup?.connectionSwitchedTo ? backup.connectionBefore : undefined }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
       return;

@@ -74,6 +74,38 @@ function samplerPatch(current, patch) {
   }
   return { next, prev, changed };
 }
+var LOOM_REQUIRED_BLOCK_KEYS = ["id", "name", "content", "role", "enabled", "position", "depth", "marker", "isLocked", "color", "injectionTrigger", "group"];
+function loomBlocksRejection(blocks) {
+  if (!Array.isArray(blocks))
+    return null;
+  let category = null;
+  for (let i = 0;i < blocks.length; i++) {
+    const b = blocks[i];
+    if (!isObj(b))
+      return `blocks[${i}]`;
+    for (const k of LOOM_REQUIRED_BLOCK_KEYS)
+      if (!Object.hasOwn(b, k))
+        return `blocks[${i}].${k}`;
+    if (b.marker !== null && typeof b.marker !== "string")
+      return `blocks[${i}].marker`;
+    if (b.color !== null && typeof b.color !== "string")
+      return `blocks[${i}].color`;
+    if (!Array.isArray(b.injectionTrigger) || b.injectionTrigger.some((t) => typeof t !== "string" || !t))
+      return `blocks[${i}].injectionTrigger`;
+    if (b.group !== null && (typeof b.group !== "string" || !b.group))
+      return `blocks[${i}].group`;
+    if (b.marker === "category") {
+      if (b.group !== null)
+        return `blocks[${i}].group`;
+      category = typeof b.id === "string" ? b.id : null;
+    } else if (b.group !== null) {
+      if (!category || category !== b.group)
+        return `blocks[${i}].group`;
+    } else
+      category = null;
+  }
+  return null;
+}
 function samplerPrechecked(detail, key) {
   if (BOOLEAN_SAMPLER_KEYS.includes(key) || !Object.hasOwn(detail.sampler, key))
     return false;
@@ -285,7 +317,15 @@ function setup(ctx) {
   }
   function editorInfo() {
     const pe = editorApi();
-    return { editorPresetId: editorPresetId(), editorDraft: typeof pe?.updatePreset === "function" && typeof pe?.flush === "function" };
+    let editorBlocksReject = null;
+    try {
+      const st = pe?.getState();
+      if (st?.open && st.preset)
+        editorBlocksReject = loomBlocksRejection(st.preset.blocks);
+    } catch {
+      editorBlocksReject = null;
+    }
+    return { editorPresetId: editorPresetId(), editorDraft: typeof pe?.updatePreset === "function" && typeof pe?.flush === "function", editorBlocksReject };
   }
   async function runEditorPatch(presetId, patch) {
     const pe = editorApi();

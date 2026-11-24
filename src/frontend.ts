@@ -2,7 +2,7 @@
 // Mobile first (360px). No secure-context-only APIs (no crypto.randomUUID, no clipboard API).
 
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types';
-import { samplerPatch, samplerPrechecked, variablePrechecked } from './core';
+import { loomBlocksRejection, samplerPatch, samplerPrechecked, variablePrechecked } from './core';
 import {
   BOOLEAN_SAMPLER_KEYS, SAMPLER_KEYS, SAMPLER_LABELS,
   type EditorInfo, type Json, type PresetDetail, type Prev, type Profile, type SamplerPatch, type StateMsg, type ToBackend, type ToFrontend, type VariableInfo,
@@ -216,7 +216,9 @@ export function setup(ctx: SpindleFrontendContext) {
   }
   function editorInfo(): EditorInfo {
     const pe = editorApi();
-    return { editorPresetId: editorPresetId(), editorDraft: typeof pe?.updatePreset === 'function' && typeof pe?.flush === 'function' };
+    let editorBlocksReject: string | null = null;
+    try { const st = pe?.getState(); if (st?.open && st.preset) editorBlocksReject = loomBlocksRejection((st.preset as { blocks?: unknown }).blocks); } catch { editorBlocksReject = null; }
+    return { editorPresetId: editorPresetId(), editorDraft: typeof pe?.updatePreset === 'function' && typeof pe?.flush === 'function', editorBlocksReject };
   }
   async function runEditorPatch(presetId: string, patch: SamplerPatch): Promise<{ changed: boolean; prev: Record<string, Prev> }> {
     const pe = editorApi();

@@ -365,8 +365,26 @@ async function undoBackup(host, store, presetId) {
     delete store.backups[presetId];
   return result;
 }
-async function applyProfileViaEditor(host, store, profile, conn, editor) {
-  const ed = await editor({ set: profile.sampler, remove: [] });
+var EDITOR_VAR_NOTE = "\uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC5B4, \uD504\uB86C\uD504\uD2B8 \uBCC0\uC218 \uAC12\uC740 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE58\uAC70\uB098 Loom\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE8\uB790\uB2E4\uAC00 \uB3CC\uC544\uC62C \uB54C\uAE4C\uC9C0 \uD654\uBA74\uC5D0 \uC61B \uAC12\uC73C\uB85C \uBCF4\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4(\uC800\uC7A5\uB41C \uAC12\uC740 \uBC14\uB00C\uC5C8\uACE0 \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uB2E4\uB978 \uAC12\uC744 \uACE0\uCCD0\uB3C4 \uB418\uB3CC\uB824\uC9C0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4). \uADF8 \uC804\uC5D0 \uD3B8\uC9D1\uAE30\uC758 '\uBCC0\uC218 \uC124\uC815' \uCC3D\uC5D0\uC11C \uC800\uC7A5\uD558\uBA74, \uC801\uC6A9\uD55C \uBCC0\uC218 \uAC12\uC774 \uC61B \uAC12\uC73C\uB85C \uB418\uB3CC\uC544\uAC11\uB2C8\uB2E4.";
+var FALLBACK_STALE_NOTE = "\uC774 \uACBD\uC6B0 \uD3B8\uC9D1\uAE30\uC5D0\uB294 \uC61B \uC0D8\uD50C\uB7EC \uAC12\uC774 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C \uACE0\uCE58\uAE30 \uC804\uC5D0 \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uC0D8\uD50C\uB7EC \uAC12\uC744 \uACE0\uCCD0 \uC800\uC7A5\uD558\uBA74, \uD3B8\uC9D1\uAE30\uAC00 \uC0D8\uD50C\uB7EC \uBB36\uC74C \uC804\uCCB4\uB97C \uC790\uAE30\uAC00 \uAC00\uC9C4 \uC61B \uAC12\uC73C\uB85C \uC368\uC11C \uBC29\uAE08 \uC801\uC6A9\uD55C \uC0D8\uD50C\uB7EC \uAC12\uC774 \uB418\uB3CC\uC544\uAC11\uB2C8\uB2E4(\uD3B8\uC9D1\uAE30\uB294 \uACE0\uCE5C \uD56D\uBAA9 \uBB36\uC74C\uB9CC \uC800\uC7A5\uD558\uBBC0\uB85C \uBE14\uB85D \uB4F1 \uB2E4\uB978 \uD56D\uBAA9\uB9CC \uACE0\uCE58\uBA74 \uC601\uD5A5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4).";
+function fallbackNote(f, varsChanged) {
+  const lead = f.detected || /^Invalid Loom/.test(f.reason) ? "\uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC758 \uBE14\uB85D \uD615\uC2DD\uC744 \uBC1B\uC9C0 \uC54A\uC544(\uD504\uB9AC\uC14B \uB370\uC774\uD130 \uBB38\uC81C) \uC11C\uBC84\uC5D0 \uC9C1\uC811 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4." : `\uD3B8\uC9D1\uAE30\uB97C \uD1B5\uD55C \uC801\uC6A9\uC774 \uB418\uC9C0 \uC54A\uC544(${f.reason.slice(0, 120)}) \uC11C\uBC84\uC5D0 \uC9C1\uC811 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4.`;
+  return `${lead} \uD3B8\uC9D1\uAE30 \uD654\uBA74\uC740 \uC0C8\uB85C \uACE0\uCE58\uBA74 \uB9DE\uCDB0\uC9D1\uB2C8\uB2E4.
+${FALLBACK_STALE_NOTE}${varsChanged ? `
+${EDITOR_VAR_NOTE}` : ""}`;
+}
+async function applyProfileViaEditor(host, store, profile, conn, editor, skipReason) {
+  let fallback = skipReason ? { reason: skipReason, detected: true } : undefined;
+  let ed = { changed: false, prev: {} };
+  if (!fallback) {
+    try {
+      ed = await editor({ set: profile.sampler, remove: [] });
+    } catch (e) {
+      fallback = { reason: e instanceof Error ? e.message : String(e), detected: false };
+    }
+  }
+  if (fallback)
+    return { ...await applyProfile(host, store, profile, conn), fallback };
   let plan = null;
   const result = await commit(host, profile.presetId, (p) => planApply(p, { sampler: {}, variables: profile.variables }), (pl) => {
     plan = pl;
@@ -388,7 +406,7 @@ async function applyProfileViaEditor(host, store, profile, conn, editor) {
     return { status: "applied", preset: result.preset, skipped: result.skipped };
   return result;
 }
-async function undoBackupViaEditor(host, store, presetId, editor) {
+async function undoBackupViaEditor(host, store, presetId, editor, skipReason) {
   const backup = store.backups[presetId];
   if (!backup)
     return { status: "missing" };
@@ -399,7 +417,17 @@ async function undoBackupViaEditor(host, store, presetId, editor) {
     else
       patch.remove.push(k);
   }
-  const ed = await editor(patch);
+  let fallback = skipReason ? { reason: skipReason, detected: true } : undefined;
+  let ed = { changed: false, prev: {} };
+  if (!fallback) {
+    try {
+      ed = await editor(patch);
+    } catch (e) {
+      fallback = { reason: e instanceof Error ? e.message : String(e), detected: false };
+    }
+  }
+  if (fallback)
+    return { ...await undoBackup(host, store, presetId), fallback };
   const result = await commit(host, presetId, (p) => planUndo(p, { ...backup, sampler: {} }));
   if (result.status === "applied" || result.status === "noop")
     delete store.backups[presetId];
@@ -523,7 +551,6 @@ function askEditor(userId, sessionId, presetId) {
     send({ type: "editor_patch", reqId, presetId, set: patch.set, remove: patch.remove }, userId, sessionId);
   });
 }
-var EDITOR_VAR_NOTE = "\uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC5B4, \uD504\uB86C\uD504\uD2B8 \uBCC0\uC218 \uAC12\uC740 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE58\uAC70\uB098 Loom\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE8\uB790\uB2E4\uAC00 \uB3CC\uC544\uC62C \uB54C\uAE4C\uC9C0 \uD654\uBA74\uC5D0 \uC61B \uAC12\uC73C\uB85C \uBCF4\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4(\uC800\uC7A5\uB41C \uAC12\uC740 \uBC14\uB00C\uC5C8\uACE0 \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uB2E4\uB978 \uAC12\uC744 \uACE0\uCCD0\uB3C4 \uB418\uB3CC\uB824\uC9C0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4). \uADF8 \uC804\uC5D0 \uD3B8\uC9D1\uAE30\uC758 '\uBCC0\uC218 \uC124\uC815' \uCC3D\uC5D0\uC11C \uC800\uC7A5\uD558\uBA74, \uC801\uC6A9\uD55C \uBCC0\uC218 \uAC12\uC774 \uC61B \uAC12\uC73C\uB85C \uB418\uB3CC\uC544\uAC11\uB2C8\uB2E4.";
 async function stateMsg(userId, chatIdIn, store, refreshList = false, hint) {
   if (chatIdIn)
     lastChat.set(userId, chatIdIn);
@@ -568,7 +595,7 @@ async function doApply(userId, sessionId, store, profile, chatId, activeConnecti
   const target = switched ? profile.connectionId : null;
   let r;
   try {
-    r = editorOpen ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId)) : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
+    r = editorOpen ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId), ed.editorBlocksReject) : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
   } catch (e) {
     const text = `'${profile.name}' ${auto ? "\uC790\uB3D9 " : ""}\uC801\uC6A9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4: ${e instanceof Error ? e.message : String(e)}`;
     if (auto)
@@ -588,7 +615,13 @@ ${w}`;
       level = "warning";
     }
   }
-  if (editorOpen && r.status === "applied" && Object.keys(profile.variables).length)
+  if (r.fallback) {
+    if (r.status === "applied") {
+      text += `
+${fallbackNote(r.fallback, Object.keys(profile.variables).length > 0)}`;
+      level = "warning";
+    }
+  } else if (editorOpen && r.status === "applied" && Object.keys(profile.variables).length)
     text += `
 ${EDITOR_VAR_NOTE}`;
   if ((r.status === "applied" || r.status === "noop") && Object.keys(profile.variables).length) {
@@ -690,17 +723,19 @@ async function handle(msg, userId, sessionId) {
         }
         let r;
         try {
-          r = editorOpen ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId)) : await undoBackup(hostFor(userId), store, msg.presetId);
+          r = editorOpen ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId), msg.editorBlocksReject) : await undoBackup(hostFor(userId), store, msg.presetId);
         } catch (e) {
           send({ type: "result", level: "error", text: `\uB418\uB3CC\uB9AC\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4: ${e instanceof Error ? e.message : String(e)}`, presetId: msg.presetId }, userId, sessionId);
           return;
         }
         await saveStore(userId, store);
         const d = describeResult(r, "\uB418\uB3CC\uB9BC");
-        const text = r.status === "applied" ? `\uC9C1\uC804 \uAC12\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.${editorOpen && backup && Object.keys(backup.variables).length ? `
+        const hasVars = !!backup && Object.keys(backup.variables).length > 0;
+        const text = r.status === "applied" ? `\uC9C1\uC804 \uAC12\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.${r.fallback ? `
+${fallbackNote(r.fallback, hasVars)}` : editorOpen && hasVars ? `
 ${EDITOR_VAR_NOTE}` : ""}` : r.status === "missing" && !backup ? "\uB418\uB3CC\uB9B4 \uBC31\uC5C5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." : d.text;
         const ok = r.status === "applied" || r.status === "noop";
-        send({ type: "result", level: d.level, text, presetId: msg.presetId, switchConnection: ok && backup?.connectionSwitchedTo ? backup.connectionBefore : undefined }, userId, sessionId);
+        send({ type: "result", level: r.fallback && r.status === "applied" ? "warning" : d.level, text, presetId: msg.presetId, switchConnection: ok && backup?.connectionSwitchedTo ? backup.connectionBefore : undefined }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
       return;

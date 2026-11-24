@@ -109,6 +109,8 @@ export interface StateMsg {
 export interface EditorInfo {
   editorPresetId?: string | null;
   editorDraft?: boolean;
+  /** Set when the editor's own validator would refuse the open preset's blocks (first offending path); apply then goes straight to the server. */
+  editorBlocksReject?: string | null;
 }
 
 /** Sampler change to run through the open editor's draft: set these keys, delete those. */

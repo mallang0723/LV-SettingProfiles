@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   applyProfile, applyProfileViaEditor, commit, describePreset, editorBlocks, resolveActive, samplerDisabledWarning, samplerPatch, samplerPrechecked,
-  undoBackupViaEditor, variablePrechecked, writeRoute, exportProfiles, importProfiles, normalizeStore, planApply, undoBackup,
+  undoBackupViaEditor, loomBlocksRejection, fallbackNote, variablePrechecked, writeRoute, exportProfiles, importProfiles, normalizeStore, planApply, undoBackup,
   type PresetLike,
 } from '../src/core';
 import { emptyStore, type Profile } from '../src/shared';
@@ -316,12 +316,72 @@ describe('applying through the open editor', () => {
     expect(store.backups.p1).toBeUndefined();
   });
 
-  test('an editor failure aborts before anything is written to the host', async () => {
+  test('an editor that refuses falls back to a server write; values applied, blocks and prompt_order untouched', async () => {
     const host = new FakeHost();
     const store = emptyStore();
-    await expect(applyProfileViaEditor(host, store, profile(), { before: null, switchedTo: null }, async () => { throw new Error('closed'); })).rejects.toThrow('closed');
-    expect(host.updates).toHaveLength(0);
+    const blocksBefore = JSON.stringify(host.preset.prompt_order);
+    const r = await applyProfileViaEditor(host, store, profile(), { before: null, switchedTo: null }, async () => { throw new Error('Invalid Loom blocks[23].group'); });
+    expect(r.status).toBe('applied');
+    expect(r.fallback).toEqual({ reason: 'Invalid Loom blocks[23].group', detected: false });
+    expect(host.updates).toHaveLength(1);
+    expect(Object.keys(host.updates[0]!).sort()).toEqual(['expected_cache_revision', 'metadata', 'parameters']);
+    expect(host.updates[0]!.expected_cache_revision).toBe(7);
+    expect(host.preset.parameters.samplerOverrides).toMatchObject({ temperature: 0.75, topP: 0.95, topK: null });
+    expect(host.preset.metadata.promptVariables).toEqual({ b1: { plan: 'b', risky: 1 } });
+    expect(JSON.stringify(host.preset.prompt_order)).toBe(blocksBefore);
+    expect(store.backups.p1!.sampler.temperature).toEqual({ had: true, value: 1 });
+    const note = fallbackNote(r.fallback!, true);
+    expect(note).toContain('편집기가 이 프리셋의 블록 형식을 받지 않아(프리셋 데이터 문제) 서버에 직접 적용했습니다.');
+    expect(note).toContain('새로 고치면');
+    expect(note).toContain('샘플러 값을 고쳐 저장하면');
+    expect(note).toContain('변수 설정');
+  });
+
+  test('fallback retries once on a revision conflict', async () => {
+    const host = new FakeHost();
+    host.bumpBeforeUpdate = 1;
+    const r = await applyProfileViaEditor(host, emptyStore(), profile(), { before: null, switchedTo: null }, async () => { throw new Error('flush failed'); });
+    expect(r.status).toBe('applied');
+    expect(host.updates).toHaveLength(2);
+    expect(fallbackNote(r.fallback!, false)).toContain('flush failed');
+  });
+
+  test('a known-bad preset goes straight to the server without calling the editor', async () => {
+    const host = new FakeHost();
+    let called = false;
+    const r = await applyProfileViaEditor(host, emptyStore(), profile({ variables: {} }), { before: null, switchedTo: null }, async () => { called = true; throw new Error('x'); }, 'blocks[3].marker');
+    expect(called).toBe(false);
+    expect(r.status).toBe('applied');
+    expect(r.fallback).toEqual({ reason: 'blocks[3].marker', detected: true });
+    expect(host.preset.parameters.samplerOverrides).toMatchObject({ temperature: 0.75 });
+  });
+
+  test('undo and a refusing editor: server write, backup consumed', async () => {
+    const host = new FakeHost();
+    const store = emptyStore();
+    const before = JSON.stringify(host.preset.parameters.samplerOverrides);
+    await applyProfile(host, store, profile(), { before: null, switchedTo: null });
+    const r = await undoBackupViaEditor(host, store, 'p1', async () => { throw new Error('Invalid Loom blocks[153].marker'); });
+    expect(r.status).toBe('applied');
+    expect(r.fallback?.detected).toBe(false);
+    expect(JSON.stringify(host.preset.parameters.samplerOverrides)).toBe(before);
     expect(store.backups.p1).toBeUndefined();
+  });
+
+  test('host loom validator conditions are detected up front', () => {
+    const ok = (o: object = {}) => ({ id: 'a', name: 'n', content: '', role: 'system', enabled: true, position: 'pre_history', depth: 0, marker: null, isLocked: false, color: null, injectionTrigger: [], group: null, ...o });
+    const cat = (id: string) => ok({ id, marker: 'category' });
+    expect(loomBlocksRejection([cat('c1'), ok({ id: 'x', group: 'c1' }), ok({ id: 'y' })])).toBeNull();
+    expect(loomBlocksRejection([cat('c1'), ok({ id: 'x', group: 'c2' })])).toBe('blocks[1].group');
+    expect(loomBlocksRejection([ok({ id: 'x', group: 'c1' })])).toBe('blocks[0].group');
+    expect(loomBlocksRejection([cat('c1'), ok({ id: 'y' }), ok({ id: 'x', group: 'c1' })])).toBe('blocks[2].group');
+    expect(loomBlocksRejection([ok({ id: 'c', marker: 'category', group: 'c0' })])).toBe('blocks[0].group');
+    const { marker: _m, ...noMarker } = ok();
+    expect(loomBlocksRejection([noMarker])).toBe('blocks[0].marker');
+    const { color: _c, ...noColor } = ok();
+    expect(loomBlocksRejection([ok(), noColor])).toBe('blocks[1].color');
+    expect(loomBlocksRejection([ok({ characterTagTrigger: undefined })])).toBeNull();
+    expect(loomBlocksRejection(undefined)).toBeNull();
   });
 
   test('samplerPatch reports only what changed', () => {
