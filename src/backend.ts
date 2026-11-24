@@ -90,7 +90,7 @@ function askEditor(userId: string, sessionId: string | undefined, presetId: stri
   });
 }
 
-const EDITOR_VAR_NOTE = '편집기가 이 프리셋을 열어 두고 있어, 프롬프트 변수 값은 편집기를 다시 열 때까지 화면에 옛 값으로 보일 수 있습니다(저장된 값은 바뀌었고 편집기에서 다른 값을 고쳐도 되돌려지지 않습니다).';
+const EDITOR_VAR_NOTE = '편집기가 이 프리셋을 열어 두고 있어, 프롬프트 변수 값은 페이지를 새로 고치거나 Loom에서 다른 프리셋을 골랐다가 돌아올 때까지 화면에 옛 값으로 보일 수 있습니다(저장된 값은 바뀌었고 편집기에서 다른 값을 고쳐도 되돌려지지 않습니다). 그 전에 편집기의 \'변수 설정\' 창에서 저장하면, 적용한 변수 값이 옛 값으로 되돌아갑니다.';
 
 async function stateMsg(userId: string, chatIdIn: string | null, store?: Store, refreshList = false, hint?: string | null): Promise<StateMsg> {
   if (chatIdIn) lastChat.set(userId, chatIdIn);
