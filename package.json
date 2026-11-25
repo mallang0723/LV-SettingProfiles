@@ -1,6 +1,6 @@
 {
   "name": "setting-profiles-lv",
-  "version": "0.1.0-v4",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
