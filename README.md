@@ -1,81 +1,201 @@
-# 설정 프로필 (Lumiverse 확장)
+# Setting Profiles for Lumiverse · 설정 프로필
 
-같은 프리셋을 모델별로 다르게 쓰고 싶을 때, **샘플러 값**과 **프롬프트 변수 값**(그리고 선택으로 **연결**)을 묶어 "프로필"로 저장해 두고 한 번에 적용·전환하는 [Lumiverse](https://lumiverse.chat/) Spindle 확장입니다.
+Version **0.1.0** · [한국어](#한국어)
 
-- 프리셋을 복사하지 않습니다. 프리셋 묶음 정규식(`preset_id`)이 원본에만 붙어 있어서, 복사본은 정규식을 잃거나 정규식까지 복사해 수가 크게 늘어납니다. 이 확장은 **프리셋 블록·정규식·이름·프롬프트 문구를 절대 건드리지 않고**, 아래 두 가지 값만 바꿉니다.
-  1. 샘플러 (`samplerOverrides`): 온도, Top P, Top K, 최대 토큰 등
-  2. 프롬프트 변수 값 (프리셋 편집기의 "Configure Prompt Variables"에서 고르는 값)
-- 적용하기 전 현재 값을 자동으로 백업하고, **되돌리기** 한 번으로 직전 상태로 돌립니다.
+Use one [Lumiverse](https://lumiverse.chat/) preset with different models: save selected sampler settings and prompt-variable values as profiles, optionally attach a connection, and apply them together. Keep your prompt structure without duplicating presets or editing blocks and regex scripts.
+
+The interface is **Korean**; this guide includes the actual button labels.
+
+<!-- screenshot: Profiles drawer tab with a target preset and saved profile cards -->
+
+## Features
+
+- Save, edit, delete, and apply profiles per preset; only included fields change.
+- Include temperature, Top P/Min P/Top K, token/context limits, penalties, sampler-enable and streaming switches, and prompt-variable values.
+- Switch connections on manual apply, or auto-apply when selecting an assigned connection.
+- Undo the last backed-up apply and export/import profiles as JSON.
+
+## Requirements
+
+- **Lumiverse 1.2.5 or later** (tested on a live 1.2.5-version server and on 1.3.0 staging).
+- An existing Loom preset.
+- Variables defined in that preset for variable profiles.
+- An existing connection for connection features.
+
+## Install
+
+1. Open **Lumiverse drawer → Extensions → Add Extension**.
+2. Paste this URL into **Install from Source** and install:
+
+   ```text
+   https://github.com/mallang0723/LV-SettingProfiles
+   ```
+
+3. Enable **설정 프로필** and review **Permissions**:
+   - **`presets` — required:** reads presets and updates sampler/variable values.
+   - **`generation` — optional:** enables connection switching and auto-apply; manual sampler/variable profiles work without it. No model calls are made.
+4. Open the drawer's **프로필** (Profiles) tab.
+
+<!-- screenshot: Extension enabled with presets and generation permission controls -->
+
+## Usage
+
+1. Choose **대상 프리셋** (Target preset). **(현재)** marks the active preset. Choosing a target here does not activate it.
+2. Click **현재 값으로 저장** (Save from current values) and name the profile.
+3. Check and edit the fields to include. **Unchecked fields stay unchanged.** Set numeric samplers and variables differing from defaults start checked; include sampler-enable and streaming switches explicitly.
+4. Optionally choose **적용할 때 이 연결로 전환** (Switch to this connection on apply), then **저장** (Save). Saving alone does not apply anything.
+5. Click **적용** (Apply) on the card and read the result. Matching values are left alone; a configured connection can still switch.
+6. Use **되돌리기** (Undo), **편집** (Edit), or **삭제** (Delete). Deleting a profile does not revert applied settings.
+7. **내보내기 (JSON)** (Export) downloads all profiles; **가져오기** (Import) adds new entries without replacing existing ones.
+8. **새로 고침** (Refresh) reloads preset/connection lists. Reselect a preset to reload its values after external edits.
+
+**Input tips:** A checked blank numeric field clears its override. With samplers enabled, cleared temperature/max tokens use **1.0 / 16384**; other cleared numbers are omitted. Zero also omits some parameters. Range variables use `[1, 5]`; multiselect variables use option IDs such as `["a", "b"]`.
+
+<!-- screenshot: Profile form with checked samplers, prompt variables, and optional connection -->
+
+## Settings
+
+**Auto-apply is off by default.** Under **옵션** (Options), enable **연결을 바꾸면 그 연결에 묶인 프로필 자동 적용**. In a profile, check connections under **이 연결을 고르면 자동 적용**, then save.
+
+Only profiles for the **active preset** qualify. Assign one profile per preset/connection; the first stored match wins. Auto-apply runs on connection changes while Lumiverse and the extension are loaded—not on preset changes or simply enabling the option. Test by switching away and back.
+
+**Reasoning / effort** follows Lumiverse's connection bindings; configure it in connection settings. This extension does not edit it.
+
+<!-- screenshot: Auto-apply option and the profile's connection trigger checkboxes -->
+
+## Safety and undo
+
+- **Unchanged:** preset names, prompt text, blocks/order, regex scripts, chats, characters, personas, credentials, and built-in preset-profile bindings. Only selected settings and optional connection selection change.
+- **One backup per preset:** a successful value-changing apply replaces it; matching values do not. Undo restores changed fields, overwrites any later edits to those fields, and consumes the backup. There is no redo.
+- Undo also attempts to restore the previous connection when recorded. Connection-only changes create no backup, and an empty previous selection cannot be restored; handle those manually.
+- JSON exports contain **profiles only**, excluding undo backups, options, presets, and connections. Use Lumiverse's preset backups for a full restore.
+- Conflicting edits are retried once, then reported. **Failures can leave partial changes without a usable undo backup**; a failed connection switch does not revert settings. Reload and inspect actual values before retrying.
+- Applying through an open Loom editor can save other pending edits. If the editor rejects the update, the extension tries a direct save and warns. Refresh before further editing as described below.
+
+## FAQ / troubleshooting
+
+1. **Applied, but samplers have no effect?** Include **샘플러 값 사용 → 켬** (Use sampler values → On), or enable it in Loom. Check that the edited preset is active. Streaming is separate and can be disabled even when samplers are off.
+2. **Variables still use other values?** Built-in chat/persona/character/connection/default bindings can override preset values. Check those in Lumiverse; this extension does not edit them. A binding warning is not always available. Removed variables are skipped, but their profile values are retained.
+3. **Auto-apply is disabled or does nothing?** Grant `generation`, enable the option, and save a trigger connection for the active preset. Read any explanation shown. Replace deleted connections, then switch away and back to test.
+4. **Loom shows old values or `Invalid Loom blocks[…]`?** Reload before saving the variable dialog; after a direct-save warning, reload before editing samplers too. Stale editor values can overwrite applied settings. If applying is refused, select another preset in Loom or reload. Hiding its tab does not close the draft.
+5. **Missing preset or failed import?** Check `presets` permission and Refresh. Only 200 presets are listed. Import accepts this extension's JSON, up to **2 MiB**, processing the first **200 entries**; invalid entries may be skipped. Preset/connection IDs must still exist—import does not recreate or remap them.
+
+## Privacy and storage
+
+Profiles, names, preset/connection IDs, values, timestamps, undo backups, and options are stored in **`profiles.json` in Lumiverse's per-user extension storage on the host server**. Applied values go into preset data. Exports download to your browser; imports go to your Lumiverse host.
+
+The extension reads presets, connection details, active-preset state, and the current chat ID, not conversation history. **No external-service requests, telemetry, or model calls.** Installation/updates fetch GitHub through Lumiverse. Later generation sends the resulting prompt/settings to your configured model provider as usual. Review exported names and variable text before sharing.
+
+## Limitations
+
+Settings affect the preset, not individual chats. Only defined variables apply; input checks do not guarantee model/provider support. Imports work where the original preset/connection IDs exist. The editor and binding limitations also apply to undo and auto-apply. English UI is not yet available.
+
+## License and credits
+
+[MIT](LICENSE). Copyright and attribution remain in [LICENSE](LICENSE); the author field remains in [spindle.json](spindle.json).
+
+## Changelog
+
+- **0.1.0** — Sampler/variable profiles, connection switching and auto-apply, one-level undo, JSON import/export, conflict retry, and open-editor handling.
+
+---
+
+# 한국어
+
+버전 **0.1.0**
+
+같은 [Lumiverse](https://lumiverse.chat/) 프리셋을 여러 모델에 맞춰 사용하세요. 선택한 샘플러 설정과 프롬프트 변수 값을 프로필로 저장하고, 필요하면 연결도 지정해 한 번에 적용합니다. 프리셋을 복사하거나 블록·정규식을 수정하지 않고 프롬프트 구조를 유지할 수 있습니다.
+
+화면은 **한국어**이며, 위 영문 안내에도 실제 버튼명을 함께 표기했습니다.
+
+<!-- screenshot: 대상 프리셋과 저장한 프로필 카드가 보이는 프로필 탭 -->
+
+## 기능
+
+- 프리셋마다 프로필을 저장·편집·삭제·적용하며, 포함한 항목만 바꿉니다.
+- 온도, Top P/Min P/Top K, 토큰·컨텍스트 크기, 페널티, 샘플러 사용·스트리밍 스위치, 프롬프트 변수 값을 저장합니다.
+- 수동 적용 시 연결을 전환하거나, 지정한 연결을 선택할 때 자동 적용합니다.
+- 마지막 백업에 해당하는 적용을 되돌리고, 프로필을 JSON으로 내보내고 가져옵니다.
+
+## 요구 사항
+
+- **Lumiverse 1.2.5 이상** (1.2.5 버전 실서버와 1.3.0 스테이징에서 동작 확인).
+- 기존 Loom 프리셋.
+- 변수 프로필을 쓰려면 해당 프리셋에 정의된 변수.
+- 연결 기능을 쓰려면 기존 연결.
 
 ## 설치
 
-1. Lumiverse → 서랍(drawer) → **Extensions** → **Add Extension**
-2. *Install from Source*에 이 저장소의 GitHub 주소를 입력 → **Install**
-3. 설치된 확장의 **Enable**을 켜고 권한 두 개를 허용합니다.
-   - `presets`: 프리셋을 읽고, 샘플러·프롬프트 변수 값만 고쳐 쓰기
-   - `generation`: 연결 전환, 연결 변경 알림 받기(연결 목록 읽기에는 권한이 필요 없습니다) (연결 기능을 쓰지 않으면 거부해도 샘플러·변수 프로필은 동작합니다)
+1. **Lumiverse 서랍 → Extensions → Add Extension**을 엽니다.
+2. **Install from Source**에 아래 URL을 붙여 넣고 설치합니다.
+
+   ```text
+   https://github.com/mallang0723/LV-SettingProfiles
+   ```
+
+3. **설정 프로필**의 **Enable**을 켜고 **Permissions**를 확인합니다.
+   - **`presets` — 필수:** 프리셋을 읽고 샘플러·변수 값을 갱신합니다.
+   - **`generation` — 선택:** 연결 전환·자동 적용에 필요합니다. 거부해도 샘플러·변수 프로필은 수동 적용할 수 있으며, 모델을 호출하지는 않습니다.
+4. 서랍의 **프로필** 탭을 엽니다.
+
+<!-- screenshot: 확장 활성화 상태와 presets·generation 권한 설정 -->
 
 ## 사용법
 
-서랍의 **프로필** 탭(설정 프로필)을 엽니다.
+1. **대상 프리셋**을 고릅니다. **(현재)**는 활성 프리셋입니다. 여기서 대상을 골라도 활성화되지는 않습니다.
+2. **현재 값으로 저장**을 누르고 프로필 이름을 입력합니다.
+3. 포함할 항목을 체크하고 편집합니다. **체크하지 않은 항목은 그대로 둡니다.** 값이 지정된 숫자형 샘플러와 기본값과 다른 변수는 처음부터 체크되며, 샘플러 사용·스트리밍 스위치는 직접 포함해야 합니다.
+4. 필요하면 **적용할 때 이 연결로 전환**을 고르고 **저장**합니다. 저장만으로 적용되지는 않습니다.
+5. 카드의 **적용**을 누르고 결과를 읽습니다. 이미 같은 값은 그대로 두지만, 지정한 연결로는 전환될 수 있습니다.
+6. **되돌리기**, **편집**, **삭제**로 관리합니다. 프로필을 삭제해도 적용한 설정은 되돌아가지 않습니다.
+7. **내보내기 (JSON)**는 모든 프로필을 내려받고, **가져오기**는 기존 항목을 교체하지 않고 새 항목으로 추가합니다.
+8. **새로 고침**은 프리셋·연결 목록을 다시 읽습니다. 외부에서 수정한 값은 해당 프리셋을 다시 선택해 불러오세요.
 
-1. **대상 프리셋**을 고릅니다. 현재 쓰는 프리셋에는 "(현재)"가 붙습니다.
-2. **현재 값으로 저장**을 누르면 그 프리셋의 지금 값이 폼에 채워집니다.
-   - 이름을 적고, **체크한 항목만** 프로필에 들어갑니다. 체크하지 않은 항목은 적용할 때 건드리지 않습니다.
-   - 숫자 칸을 비운 채 체크하면 "비움"으로 적용됩니다. 호스트에서 비움의 의미는 키마다 다릅니다. 온도·최대 토큰은 호스트 기본값(1.0 / 16384)을 보내고, 그 밖의 키는 요청에서 생략합니다. 0은 일부 키를 요청에서 제외하는 값입니다.
-   - 처음에는 **기본값과 다른 값만** 미리 체크됩니다. 샘플러는 값이 지정된 것(호스트 기본은 전부 "지정 안 함")만, 프롬프트 변수는 프리셋에 저장된 값이 변수 기본값과 다른 것만 체크됩니다. 샘플러 사용·스트리밍 스위치는 직접 체크해야 합니다. 변수가 많으면 검색 칸으로 찾습니다.
-   - **연결(선택)**: 적용할 때 이 연결로 전환할지 고릅니다.
-3. 프로필 카드의 **적용**으로 값을 한 번에 바꿉니다. 이미 같은 값이면 아무것도 쓰지 않습니다.
-4. 마음에 안 들면 **되돌리기**를 누릅니다. 프리셋마다 가장 최근 적용 1회분을 보관합니다.
-5. **편집**으로 값을 고치고, **삭제**로 지웁니다. 같은 프리셋 안에서 이름이 겹치면 `(2)`가 붙습니다.
-6. **내보내기 (JSON)** / **가져오기**로 프로필을 파일로 옮깁니다. 가져온 프로필은 새 항목으로 추가됩니다.
+**입력 팁:** 체크한 숫자 칸을 비우면 값을 비웁니다. 샘플러 사용이 켜져 있으면 비운 온도·최대 토큰은 **1.0 / 16384**를 사용하고, 나머지 비운 숫자는 요청에서 생략합니다. 일부 항목은 0도 생략을 뜻합니다. 범위 변수는 `[1, 5]`, 다중 선택은 `["a", "b"]`처럼 선택지 ID로 입력합니다.
 
-### 모델 연결과 추론 설정
+<!-- screenshot: 체크한 샘플러, 프롬프트 변수, 연결 선택이 보이는 프로필 폼 -->
 
-- **연결 전환**: 프로필에 연결을 지정하면 적용할 때 그 연결로 바뀝니다. 되돌리기를 하면 적용 직전 연결로 돌아갑니다.
-- **자동 적용**: 하단 옵션을 켜고, 프로필 편집에서 "이 연결을 고르면 자동 적용"에 연결을 체크하면, 연결을 바꿀 때 (현재 프리셋의) 해당 프로필이 자동 적용됩니다. 기본은 꺼져 있습니다. 현재 프리셋은 화면(프런트)의 `loom.activePresetId` 상태에서 읽습니다. 호스트가 이를 주지 않고 백엔드의 `presets.getActive`도 없으면 "현재 프리셋을 알 수 없어 자동 적용을 쓸 수 없다"는 안내를 옵션 칸에 띄우고, 자동 적용 체크를 막습니다(조용히 아무것도 안 하지 않습니다).
-- `generation` 권한을 거부하면 연결 전환과 자동 적용이 꺼지고 그 이유가 화면에 표시됩니다. 샘플러·변수 프로필은 그대로 동작합니다.
-- **추론 설정(API Reasoning, effort)은 이 확장이 바꾸지 않습니다.** Lumiverse는 연결을 바꿀 때 그 연결에 묶인 추론 설정을 자동으로 불러옵니다. 모델마다 추론을 다르게 쓰려면 **각 연결에 추론 설정을 한 번 묶어 두세요.** 예를 들어 추론을 쓰지 않는 모델의 연결에는 추론 None을 묶어 둡니다. 그러면 그 연결로 전환할 때마다 따라옵니다.
+## 설정
+
+**자동 적용은 기본 꺼짐**입니다. **옵션**에서 **연결을 바꾸면 그 연결에 묶인 프로필 자동 적용**을 켜고, 프로필의 **이 연결을 고르면 자동 적용**에 연결을 체크해 저장하세요.
+
+**활성 프리셋**의 프로필만 적용합니다. 여러 개가 일치하면 저장 목록의 첫 번째가 선택되므로 프리셋·연결 조합마다 하나를 지정하세요. Lumiverse와 확장이 로드된 동안 연결 변경에 반응하며, 프리셋만 바꾸거나 옵션만 켜서는 실행되지 않습니다. 다른 연결로 갔다가 돌아와 시험하세요.
+
+**추론·effort**는 Lumiverse의 연결 바인딩을 따릅니다. 연결 설정에서 지정하세요. 이 확장이 직접 수정하지는 않습니다.
+
+<!-- screenshot: 자동 적용 옵션과 프로필별 연결 체크박스 -->
+
+## 안전과 되돌리기
+
+- **변경하지 않는 항목:** 프리셋 이름, 프롬프트 문구, 블록·순서, 정규식, 채팅, 캐릭터, 페르소나, 인증 정보, 기본 프리셋 프로필 바인딩. 선택한 설정과 선택적 연결 전환만 바뀝니다.
+- **프리셋당 백업 1개:** 값을 바꾸는 적용이 성공하면 교체하고, 이미 같은 값이면 유지합니다. 되돌리기는 바뀐 항목만 복원하되 이후 같은 항목을 직접 고친 값도 덮어쓰며, 백업을 소모합니다. 다시 실행은 없습니다.
+- 이전 연결이 기록되어 있으면 복원도 시도합니다. 연결만 바꾸면 새 백업이 생기지 않고, 이전 연결 선택이 비어 있었다면 복원하지 못하므로 직접 바꾸세요.
+- JSON 내보내기는 **프로필만** 포함합니다. 되돌리기 백업·옵션·프리셋·연결은 제외되므로 전체 복원에는 Lumiverse의 프리셋 백업을 사용하세요.
+- 동시 수정 충돌은 한 번 재시도한 뒤 알립니다. **실패해도 일부 변경이 남고 되돌리기 백업이 없을 수 있습니다.** 연결 전환 실패도 설정을 복원하지 않습니다. 다시 불러와 실제 값을 확인한 뒤 재시도하세요.
+- 열린 Loom 편집기를 통해 적용하면 다른 미저장 편집도 저장될 수 있습니다. 편집기가 거부하면 직접 저장을 시도하고 경고합니다. 아래 안내대로 새로 고친 뒤 편집하세요.
+
+## FAQ / 문제 해결
+
+1. **적용했는데 샘플러 효과가 없나요?** 프로필에 **샘플러 값 사용 → 켬**을 포함하거나 Loom에서 켜세요. 수정한 프리셋이 활성 상태인지도 확인하세요. 스트리밍은 별도 처리하므로 샘플러 사용이 꺼져 있어도 끌 수 있습니다.
+2. **변수가 여전히 다른 값을 쓰나요?** 채팅·페르소나·캐릭터·연결·기본값 바인딩이 프리셋 값보다 우선할 수 있습니다. Lumiverse에서 확인하세요. 확장은 이를 수정하지 않으며 경고가 항상 표시되지는 않습니다. 삭제된 변수는 건너뛰되 프로필 값은 보존합니다.
+3. **자동 적용이 꺼져 있거나 실행되지 않나요?** `generation`을 허용하고 옵션을 켠 뒤, 활성 프리셋의 프로필에 연결을 체크해 저장하세요. 표시된 안내를 확인하고, 삭제된 연결은 다시 지정한 뒤 다른 연결로 갔다가 돌아와 시험하세요.
+4. **Loom에 옛 값이나 `Invalid Loom blocks[…]`가 보이나요?** 변수 창을 저장하기 전에 새로 고치세요. 직접 저장 경고가 나왔다면 샘플러 편집 전에도 새로 고쳐야 옛 값으로 덮어쓰는 일을 막습니다. 적용이 거부되면 Loom에서 다른 프리셋을 고르거나 새로 고치세요. 탭을 숨겨도 초안은 열려 있습니다.
+5. **프리셋이 없거나 가져오기에 실패하나요?** `presets` 권한을 확인하고 새로 고치세요. 프리셋은 200개까지만 표시됩니다. 가져오기는 이 확장의 **2 MiB 이하** JSON에서 첫 **200개 항목**을 처리하며, 잘못된 항목은 건너뛸 수 있습니다. 프리셋·연결 ID가 남아 있어야 하며, 대상을 만들거나 ID를 재연결하지 않습니다.
+
+## 데이터와 저장 위치
+
+프로필, 이름, 프리셋·연결 ID, 값, 시각 정보, 되돌리기 백업, 옵션은 **호스트 서버의 Lumiverse 사용자별 확장 저장소에 있는 `profiles.json`**에 저장됩니다. 적용한 값은 프리셋 데이터에 반영됩니다. 내보내기는 브라우저로 내려받고, 가져오기는 Lumiverse 호스트로 보냅니다.
+
+프리셋, 연결 정보, 활성 프리셋 상태, 현재 채팅 ID를 읽으며 대화 기록은 조회하지 않습니다. **외부 서비스 요청·사용 통계 전송·모델 호출은 없습니다.** 설치·업데이트는 Lumiverse가 GitHub에서 가져옵니다. 이후 대화 생성 시에는 평소처럼 프롬프트·설정을 지정한 모델 제공자에게 보냅니다. 내보낸 이름과 변수 텍스트는 공유 전에 확인하세요.
 
 ## 한계
 
-- **프리셋 프로필 바인딩**(채팅·페르소나·캐릭터·연결·기본값에 묶인 프롬프트 변수 값)이 있으면 프리셋에 저장한 변수 값보다 우선합니다. 확장은 이 바인딩을 읽거나 쓸 수 없어서, 바인딩이 걸린 채팅에서 변수 값이 적용되지 않을 수 있습니다. 이 경우 적용 후 경고를 띄웁니다(샘플러는 영향 없음).
-- 프롬프트 변수는 **프리셋에 정의된 변수만** 적용합니다. 프리셋을 고쳐서 없어진 변수는 건너뜁니다(저장된 값은 보존).
-- **Loom 편집기가 같은 프리셋을 열고 있을 때**(Loom 탭을 한 번 열면 페이지를 새로 고치거나 다른 프리셋을 고를 때까지 계속 "열림"입니다): 거부하지 않고 편집기를 거쳐 적용합니다. **샘플러 값**은 편집기 초안에 같은 값을 넣고 즉시 저장(`updatePreset` + `flush`)해서, 편집기 화면과 저장된 프리셋이 같고 편집기에서 다른 값을 고쳐도 되돌려지지 않습니다. **프롬프트 변수 값**은 편집기 초안으로 쓸 수 없는 값이라(호스트가 초안의 변수 값을 무시함) 저장 직후 호스트에 직접 씁니다. 저장된 값은 바뀌고 편집기에서 다른 값을 고쳐도 되돌려지지 않지만, **편집기의 변수 화면은 페이지를 새로 고치거나 Loom에서 다른 프리셋을 골랐다가 돌아올 때까지 옛 값으로 보일 수 있습니다**(적용 결과에 안내가 붙습니다). 그 전에 편집기의 "변수 설정" 창에서 저장하면, 적용한 변수 값이 옛 값으로 되돌아갑니다. 되돌리기·자동 적용도 같은 경로입니다. 호스트에 `updatePreset`·`flush`가 없으면 예전처럼 거부합니다.
-- **편집기가 프리셋의 블록 형식을 받지 않는 경우**: 호스트 편집기 검증기(1.2.5·1.3.0 동일)는 서버보다 엄격해서, 블록의 `group`이 바로 앞 카테고리와 다르거나 `marker`·`color` 등 필수 키가 없으면 `updatePreset`이 `Invalid Loom blocks[N].…`로 거부합니다(서버는 그런 블록도 저장합니다). 이때 확장은 블록을 고치지 않고, 편집기를 열 때부터 이를 미리 알아보거나(또는 편집기 호출이 실패하면) **서버에 직접 씁니다**(`parameters`·`metadata` 부분 갱신, 리비전 충돌 시 재시도). 적용·되돌리기·자동 적용 모두 같고, 결과에 안내가 붙습니다. 이 경우 편집기에는 옛 샘플러 값이 남습니다. 호스트 소스상 편집기는 고친 항목 묶음(샘플러 값은 `samplerOverrides` 한 묶음)만 저장하고 저장 때 어긋난 리비전은 다시 읽어 합치므로, 블록 등 다른 항목만 고치면 적용값이 유지되지만 **편집기에서 샘플러 값을 고쳐 저장하면 샘플러 묶음 전체가 편집기의 옛 값으로 덮입니다**. 새로 고치면 맞춰집니다.
-- 프리셋의 **샘플러 사용(`enabled`)이 꺼져 있으면** 호스트는 샘플러 값을 생성 요청에 싣지 않습니다. 이때 적용하면 값은 써지지만 효과가 없으므로 적용 결과에 경고를 띄웁니다(저장 폼에도 안내). 확장이 사용 여부를 대신 켜지는 않습니다. 켜려면 프로필에 "샘플러 값 사용 = 켬"을 넣거나 프리셋 편집기에서 직접 켜세요.
-- 프리셋 목록은 호스트에 요약 조회가 없어 전체 행을 읽으므로, 탭을 열 때와 "새로 고침"을 누를 때만 가져오고 최대 200개까지만 보입니다. 201번째 이후 프리셋은 고를 수 없습니다.
-- 프리셋이 동시에 바뀌어 `expected_cache_revision`이 어긋나면 다시 읽어 한 번 재시도하고, 그래도 실패하면 알림으로 알립니다.
-- 되돌리기는 **그 적용이 바꾼 항목만** 이전 값으로 돌립니다. 적용 뒤에 같은 항목을 직접 고쳤다면 그 값도 덮어씁니다. 프리셋당 1회분만 보관합니다.
-- 연결 전환과 자동 적용은 Lumiverse가 프런트 `ctx.connections`의 `subscribe`·`setActive` 계열을 제공할 때만 동작합니다. 없으면 해당 기능이 꺼진 채 안내가 나옵니다.
-- 가져오기는 대상 프리셋 id를 그대로 씁니다. 다른 설치로 옮기면 같은 id의 프리셋이 없어서 적용되지 않습니다(같은 설치에서의 백업·복원용).
-- 값은 확장 사용자 저장소(`profiles.json`)에 저장되며, 서버 요청은 탭을 열거나 버튼을 누를 때만 합니다(대화 전체 조회 없음, 프리셋 전환 감시 없음).
+설정은 개별 채팅이 아닌 프리셋에 적용됩니다. 정의된 변수만 적용하며, 입력 검사가 모델·제공자의 지원까지 보장하지는 않습니다. 가져오기는 원래 프리셋·연결 ID가 남아 있는 환경에서 사용하세요. 편집기·바인딩 제한은 되돌리기와 자동 적용에도 해당합니다. 영어 UI는 아직 없습니다.
 
-## 검증 기록
+## 라이선스와 크레딧
 
-- 자동 테스트(`bun test`): 34개. 부분 적용(블록·프롬프트·이름이 페이로드에 없음), 변경 없음 = 쓰기 없음, 되돌리기, 리비전 충돌 재시도, 입력 검증, 내보내기·가져오기, 폼 값 해석, 편집기를 거친 적용·되돌리기, 현재 프리셋 판별(워커에 `getActive`가 없는 호스트 포함), 처음 체크 항목, 변수 모양 검사.
-- 가짜 호스트 브라우저 시험(chromium, 360px·1280px): 실제 http 사설 주소에서 `isSecureContext=false`, `crypto.randomUUID` 없음 상태로 저장·적용·되돌리기·연결 전환·자동 적용 18개 점검 통과, 가로 넘침 없음.
-- 실제 Lumiverse(로컬 서버)에서 합성 프리셋(블록 186개, 정규식 183개)으로 26개 점검 통과: 저장·적용·재적용(변경 없음)·되돌리기·외부 리비전 경합·내보내기/가져오기·삭제, 매번 블록 목록 동일·정규식 수 동일 확인. 모델 호출 없음.
-- 실제 Lumiverse(로컬 서버)에서 편집기 상호작용 실측(0.1.0-v2, 합성 프리셋 2블록, 모델 호출 없음): Loom 탭을 열기 전에는 적용·되돌리기가 정상 동작, Loom 탭에서 그 프리셋을 연 뒤에는 적용이 거부되고 프리셋 값·리비전 불변, Loom에서 다른 프리셋을 고르면 다시 적용 가능. 샘플러 사용이 꺼진 프리셋에 적용하면 경고가 표시됨.
-- 실제 Lumiverse(로컬 서버 1.3.0, 합성 프리셋, 모델 호출 없음, 0.1.0-v3): 처음 체크 항목, "(현재)" 표시, 연결 변경 시 자동 적용(편집기 닫힘·열림 모두), 편집기가 열린 채 적용·되돌리기 후 편집기 값과 저장값 일치, 편집기에서 다른 값을 고쳐도 적용값 유지, 워커 `getActive`를 막은 상태에서도 같은 결과 — 10개 점검 통과.
-- 실제 Lumiverse(로컬 서버 1.3.0, 합성 프리셋, 0.1.0-v4): 카테고리와 어긋난 `group`·`marker` 없는 블록이 있는 프리셋을 편집기로 연 채 적용·되돌리기 — 서버 직접 쓰기로 성공, 안내 표시, 블록 바이트 동일, 8개 점검 통과.
-- 1.2.5는 소스 이력으로 확인했습니다(워커 `presets`에 `getActive` 없음, 프런트 `ctx.state`의 `loom.activePresetId`·`presetEditor.updatePreset/flush`·`connections.subscribe/setActiveAcknowledged` 있음). 1.2.5 실물 서버에서의 시험은 하지 못했습니다.
-- 확인하지 못한 것: 편집기를 열어 둔 채 편집기의 "변수 설정" 창에서 변수를 직접 고쳤을 때의 병합, 1.2.5 실물 동작.
+[MIT](LICENSE). 기존 저작권·저작자 표기는 [LICENSE](LICENSE)에, author 필드는 [spindle.json](spindle.json)에 유지됩니다.
 
-## 개발
+## 변경 기록
 
-```bash
-bun install
-bun test
-bun run typecheck
-bun run build   # dist/backend.js, dist/frontend.js — 변경 후 dist도 함께 커밋
-```
-
-- `src/core.ts` — 호스트에 의존하지 않는 적용·되돌리기·검증·내보내기 (가짜 호스트로 시험)
-- `src/backend.ts` — 저장(사용자별), 프리셋 읽기·쓰기, 자동 적용
-- `src/frontend.ts` — 서랍 탭 화면
-- `tests/harness/` — 가짜 Lumiverse 문맥으로 프런트를 브라우저에서 띄우는 시험용 페이지
-
-## 라이선스
-
-[MIT](LICENSE) © 2026 mallang0723
+- **0.1.0** — 샘플러·변수 프로필, 연결 전환·자동 적용, 한 단계 되돌리기, JSON 가져오기·내보내기, 충돌 재시도, 열린 편집기 처리.
