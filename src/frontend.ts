@@ -1,10 +1,11 @@
 // Frontend: a drawer tab to save, edit, apply and undo setting profiles.
 // Mobile first (360px). No secure-context-only APIs (no crypto.randomUUID, no clipboard API).
 
+import { HOST_LANGUAGE_KEY, normalizeLanguage, resolveLanguage, translate, translator, type Language, type LanguageSetting, type MessageKey, type Params } from './i18n';
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types';
 import { loomBlocksRejection, samplerPatch, samplerPrechecked, variablePrechecked } from './core';
 import {
-  BOOLEAN_SAMPLER_KEYS, SAMPLER_KEYS, SAMPLER_LABELS,
+  BOOLEAN_SAMPLER_KEYS, SAMPLER_KEYS, SAMPLER_LABEL_KEYS,
   type EditorInfo, type Json, type PresetDetail, type Prev, type Profile, type SamplerPatch, type StateMsg, type ToBackend, type ToFrontend, type VariableInfo,
 } from './shared';
 
@@ -72,39 +73,46 @@ interface Form {
 export const valueToText = (v: Json | undefined): string =>
   v === undefined || v === null ? '' : typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : JSON.stringify(v);
 
-export function parseVariable(type: string, text: string): Json {
+export function parseVariable(type: string, text: string, language: Language = 'ko'): Json {
+  const t = translator(language);
   if (type === 'number' || type === 'slider') {
     const n = Number(text);
-    if (text.trim() === '' || !Number.isFinite(n)) throw new Error('숫자가 아닙니다');
+    if (text.trim() === '' || !Number.isFinite(n)) throw new Error(t('notNumber'));
     return n;
   }
   if (type === 'switch') return text === '1' || text === 'true' ? 1 : 0;
   if (type === 'select' || type === 'text' || type === 'textarea') return text;
-  return JSON.parse(text) as Json;
+  try { return JSON.parse(text) as Json; } catch { throw new Error(t('invalidVariableJson')); }
 }
 
 /** Shape check for the JSON-typed variables, so a typo does not store a value the host would reject or ignore. */
-export function checkVariableShape(type: string, options: Array<{ id: string }>, v: Json): void {
+export function checkVariableShape(type: string, options: Array<{ id: string }>, v: Json, language: Language = 'ko'): void {
+  const t = translator(language);
   if (type === 'range') {
-    if (!Array.isArray(v) || v.length !== 2 || v.some((x) => typeof x !== 'number' || !Number.isFinite(x))) throw new Error('[최소, 최대] 숫자 두 개여야 합니다 (예: [1, 5])');
-    if ((v[0] as number) > (v[1] as number)) throw new Error('최소가 최대보다 클 수 없습니다');
+    if (!Array.isArray(v) || v.length !== 2 || v.some((x) => typeof x !== 'number' || !Number.isFinite(x))) throw new Error(t('rangeShape'));
+    if ((v[0] as number) > (v[1] as number)) throw new Error(t('rangeOrder'));
   } else if (type === 'multiselect') {
-    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new Error('선택지 id의 배열이어야 합니다 (예: ["a","b"])');
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new Error(t('multiselectShape'));
     const ids = new Set(options.map((o) => o.id));
     const bad = (v as string[]).filter((x) => !ids.has(x));
-    if (ids.size && bad.length) throw new Error(`없는 선택지: ${bad.join(', ')}`);
+    if (ids.size && bad.length) throw new Error(t('missingOptions', { options: bad.join(', ') }));
   }
 }
 
-export function parseSampler(key: string, text: string): Json {
+export function parseSampler(key: string, text: string, language: Language = 'ko'): Json {
+  const t = translator(language);
   if (BOOLEAN_SAMPLER_KEYS.includes(key)) return text === 'true';
   if (text.trim() === '') return null;
   const n = Number(text);
-  if (!Number.isFinite(n)) throw new Error('숫자가 아닙니다');
+  if (!Number.isFinite(n)) throw new Error(t('notNumber'));
   return n;
 }
 
 export function setup(ctx: SpindleFrontendContext) {
+  let languageSetting: LanguageSetting = 'auto';
+  let pendingLanguage: LanguageSetting | null = null;
+  let language = resolveLanguage(languageSetting);
+  const t = (key: MessageKey, params?: Params) => translate(language, key, params);
   let st: StateMsg | null = null;
   let selected: string | null = null;
   let detail: PresetDetail | null = null;
@@ -114,7 +122,7 @@ export function setup(ctx: SpindleFrontendContext) {
   let conns: ConnItem[] = [];
   let suppressUntil = 0;
   let debounce: ReturnType<typeof setTimeout> | null = null;
-  const toBackend = (m: ToBackend) => ctx.sendToBackend(m);
+  const toBackend = (m: ToBackend) => ctx.sendToBackend({ ...m, language });
   const removeStyle = ctx.dom.addStyle(CSS);
 
   const chatId = (): string | null => {
@@ -158,7 +166,7 @@ export function setup(ctx: SpindleFrontendContext) {
       if (typeof api?.setActiveAcknowledged === 'function') await api.setActiveAcknowledged(id);
       else api?.setActive?.(id);
     } catch (e) {
-      show('error', `연결을 바꾸지 못했습니다: ${e instanceof Error ? e.message : String(e)}`);
+      show('error', t('switchFailed', { error: t('unexpectedError') }));
     }
   }
 
@@ -223,7 +231,7 @@ export function setup(ctx: SpindleFrontendContext) {
   async function runEditorPatch(presetId: string, patch: SamplerPatch): Promise<{ changed: boolean; prev: Record<string, Prev> }> {
     const pe = editorApi();
     const s = pe?.getState();
-    if (!pe?.updatePreset || !pe.flush || !s?.open || s.presetId !== presetId || !s.preset) throw new Error('편집기가 이 프리셋을 더 이상 열고 있지 않습니다.');
+    if (!pe?.updatePreset || !pe.flush || !s?.open || s.presetId !== presetId || !s.preset) throw new Error(t('editorClosed'));
     let out: { changed: boolean; prev: Record<string, Prev> } | null = null;
     pe.updatePreset((d) => {
       const r = samplerPatch(d.parameters?.samplerOverrides, patch);
@@ -231,7 +239,7 @@ export function setup(ctx: SpindleFrontendContext) {
       if (!r.changed) return d;
       return { ...d, parameters: { ...d.parameters, samplerOverrides: r.next } };
     }, { immediate: true });
-    if (!out) throw new Error('편집기가 값을 받지 않았습니다.');
+    if (!out) throw new Error(t('editorRejected'));
     await pe.flush();
     return out;
   }
@@ -242,12 +250,29 @@ export function setup(ctx: SpindleFrontendContext) {
 
   // ---- panel ----
   const tab = ctx.ui.registerDrawerTab({
-    id: 'setting-profiles', title: '설정 프로필', shortName: '프로필',
-    description: '모델별 샘플러·프롬프트 변수·연결 프로필', keywords: ['profile', '프로필', '샘플러', '프롬프트 변수', '모델별'],
-    headerTitle: '설정 프로필', iconSvg: ICON,
+    id: 'setting-profiles', title: t('title'), shortName: t('profiles'),
+    // Description/keywords have no update API; bilingual metadata remains searchable in either language.
+    // Omit headerTitle so the host header follows setTitle.
+    description: `${translate('ko', 'description')} / ${translate('en', 'description')}`,
+    keywords: (['ko', 'en'] as const).flatMap((lang) => (['profileKeyword', 'profiles', 'sampler', 'variables', 'perModel'] as const).map((key) => translate(lang, key))),
+    iconSvg: ICON,
   });
   const panel = el('div', { class: 'sp-panel' });
   tab.root.replaceChildren(panel);
+
+  const inputAction = ctx.ui.registerInputBarAction?.({
+    id: 'setting-profiles', label: t('title'), subtitle: t('description'), iconSvg: ICON,
+  });
+  const offInputClick = inputAction?.onClick(() => tab.activate());
+
+  function updateLanguage(): void {
+    language = resolveLanguage(languageSetting);
+    tab.setTitle(t('title'));
+    tab.setShortName(t('profiles'));
+    inputAction?.setLabel(t('title'));
+    inputAction?.setSubtitle(t('description'));
+    render();
+  }
 
   function reload(): void {
     toBackend({ type: 'load', chatId: chatId(), activePresetId: activeHint() });
@@ -264,11 +289,11 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function summary(p: Profile): string {
     const parts: string[] = [];
-    const sc = Object.keys(p.sampler).length; if (sc) parts.push(`샘플러 ${sc}`);
-    const vc = Object.values(p.variables).reduce((n, b) => n + Object.keys(b).length, 0); if (vc) parts.push(`변수 ${vc}`);
-    if (p.connectionId) parts.push(`연결: ${conns.find((c) => c.id === p.connectionId)?.name ?? '(알 수 없음)'}`);
-    if (p.autoConnectionIds.length) parts.push(`자동 ${p.autoConnectionIds.length}`);
-    return parts.join(' · ') || '비어 있음';
+    const sc = Object.keys(p.sampler).length; if (sc) parts.push(t('samplerCount', { count: sc }));
+    const vc = Object.values(p.variables).reduce((n, b) => n + Object.keys(b).length, 0); if (vc) parts.push(t('variableCount', { count: vc }));
+    if (p.connectionId) parts.push(t('connectionSummary', { name: conns.find((c) => c.id === p.connectionId)?.name ?? t('unknown') }));
+    if (p.autoConnectionIds.length) parts.push(t('autoCount', { count: p.autoConnectionIds.length }));
+    return parts.join(' · ') || t('empty');
   }
 
   function doApply(p: Profile): void {
@@ -303,19 +328,19 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function saveForm(): void {
     const f = form; if (!f) return;
-    if (!f.name.trim()) { show('error', '프로필 이름을 입력하세요.'); return; }
+    if (!f.name.trim()) { show('error', t('nameRequired')); return; }
     try {
       const sampler: Record<string, Json> = {};
       for (const k of SAMPLER_KEYS) {
         const r = f.sampler[k]!;
-        if (r.on) { try { sampler[k] = parseSampler(k, r.text); } catch (e) { throw new Error(`${SAMPLER_LABELS[k]}: ${(e as Error).message}`); } }
+        if (r.on) { try { sampler[k] = parseSampler(k, r.text, language); } catch (e) { throw new Error(`${t(SAMPLER_LABEL_KEYS[k])}: ${(e as Error).message}`); } }
       }
       const variables: Record<string, Record<string, Json>> = {};
       for (const [b, bucket] of Object.entries(f.orphans)) variables[b] = { ...bucket };
       for (const r of f.vars) {
         if (!r.on) continue;
         let v: Json;
-        try { v = parseVariable(r.info.type, r.text); checkVariableShape(r.info.type, r.info.options, v); } catch (e) { throw new Error(`${r.info.label}: ${(e as Error).message}`); }
+        try { v = parseVariable(r.info.type, r.text, language); checkVariableShape(r.info.type, r.info.options, v, language); } catch (e) { throw new Error(`${r.info.label}: ${(e as Error).message}`); }
         (variables[r.info.blockId] ??= {})[r.info.name] = v;
       }
       const auto = [...f.auto].filter((id) => id === f.connectionId || conns.some((c) => c.id === id));
@@ -336,51 +361,51 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function renderForm(f: Form): HTMLElement {
     const box = el('div', { class: 'sp-card' });
-    box.append(el('div', { class: 'sp-title' }, [f.id ? '프로필 편집' : '현재 값으로 새 프로필']));
+    box.append(el('div', { class: 'sp-title' }, [f.id ? t('editProfile') : t('newProfile')]));
     box.append(el('div', { class: 'sp-field' }, [
-      el('label', {}, ['이름']),
-      el('input', { type: 'text', value: f.name, maxLength: 80, placeholder: '예: 모델 A', onInput: (e: Event) => { f.name = (e.target as HTMLInputElement).value; } }),
+      el('label', {}, [t('name')]),
+      el('input', { type: 'text', value: f.name, maxLength: 80, placeholder: t('namePlaceholder'), onInput: (e: Event) => { f.name = (e.target as HTMLInputElement).value; } }),
     ]));
-    box.append(el('div', { class: 'sp-muted' }, ['체크한 항목만 적용됩니다. 처음에는 기본값과 다른 값만 체크되어 있습니다. 체크하지 않은 값은 건드리지 않습니다. 숫자 칸을 비우면 "비움"으로 적용됩니다.']));
+    box.append(el('div', { class: 'sp-muted' }, [t('fieldsHint')]));
 
-    box.append(el('div', { class: 'sp-h' }, ['샘플러']));
+    box.append(el('div', { class: 'sp-h' }, [t('sampler')]));
     if (detail && detail.sampler.enabled !== true) {
-      box.append(el('div', { class: 'sp-status sp-warning' }, ['이 프리셋은 샘플러 사용이 꺼져 있습니다. 아래 "샘플러 값 사용 = 켬"을 함께 넣지 않으면 적용해도 생성에 반영되지 않습니다.']));
+      box.append(el('div', { class: 'sp-status sp-warning' }, [t('samplerFormWarning')]));
     }
     for (const k of SAMPLER_KEYS) {
       const r = f.sampler[k]!;
       const input = BOOLEAN_SAMPLER_KEYS.includes(k)
         ? el('select', { onChange: (e: Event) => { r.text = (e.target as HTMLSelectElement).value; } }, [
-            el('option', { value: 'true', selected: r.text === 'true' }, ['켬']), el('option', { value: 'false', selected: r.text !== 'true' }, ['끔'])])
-        : el('input', { type: 'text', inputMode: 'decimal', value: r.text, placeholder: '비움', onInput: (e: Event) => { r.text = (e.target as HTMLInputElement).value; } });
+            el('option', { value: 'true', selected: r.text === 'true' }, [t('on')]), el('option', { value: 'false', selected: r.text !== 'true' }, [t('off')])])
+        : el('input', { type: 'text', inputMode: 'decimal', value: r.text, placeholder: t('clear'), onInput: (e: Event) => { r.text = (e.target as HTMLInputElement).value; } });
       box.append(el('div', { class: 'sp-line' }, [
-        el('label', { class: 'sp-check' }, [el('input', { type: 'checkbox', checked: r.on, onChange: (e: Event) => { r.on = (e.target as HTMLInputElement).checked; } }), SAMPLER_LABELS[k]]),
+        el('label', { class: 'sp-check' }, [el('input', { type: 'checkbox', checked: r.on, onChange: (e: Event) => { r.on = (e.target as HTMLInputElement).checked; } }), t(SAMPLER_LABEL_KEYS[k])]),
         input,
       ]));
     }
 
-    box.append(el('div', { class: 'sp-h' }, ['프롬프트 변수']));
-    if (!f.vars.length) box.append(el('div', { class: 'sp-muted' }, ['이 프리셋에는 프롬프트 변수가 없습니다.']));
+    box.append(el('div', { class: 'sp-h' }, [t('variables')]));
+    if (!f.vars.length) box.append(el('div', { class: 'sp-muted' }, [t('noVariables')]));
     const varRows: Array<{ node: HTMLElement; text: string; row: VarRow }> = [];
     if (f.vars.length > 8) {
       box.append(el('div', { class: 'sp-field' }, [
-        el('input', { type: 'text', placeholder: `변수 검색 (${f.vars.length}개)`, onInput: (e: Event) => {
+        el('input', { type: 'text', placeholder: t('searchVariables', { count: f.vars.length }), onInput: (e: Event) => {
           const q = (e.target as HTMLInputElement).value.trim().toLowerCase();
           for (const v of varRows) v.node.style.display = !q || v.row.on || v.text.includes(q) ? '' : 'none';
         } }),
       ]));
     }
     for (const r of f.vars) {
-      const t = r.info.type;
+      const variableType = r.info.type;
       let input: HTMLElement;
-      if (t === 'select') {
+      if (variableType === 'select') {
         const opts = r.info.options.slice();
-        if (!opts.some((o) => o.id === r.text)) opts.unshift({ id: r.text, label: r.text || '(빈 값)' });
+        if (!opts.some((o) => o.id === r.text)) opts.unshift({ id: r.text, label: r.text || t('emptyValue') });
         input = el('select', { onChange: (e: Event) => { r.text = (e.target as HTMLSelectElement).value; } }, opts.map((o) => el('option', { value: o.id, selected: o.id === r.text }, [o.label])));
-      } else if (t === 'switch') {
+      } else if (variableType === 'switch') {
         input = el('select', { onChange: (e: Event) => { r.text = (e.target as HTMLSelectElement).value; } }, [
-          el('option', { value: '1', selected: r.text === '1' }, ['켬']), el('option', { value: '0', selected: r.text !== '1' }, ['끔'])]);
-      } else if (t === 'textarea') {
+          el('option', { value: '1', selected: r.text === '1' }, [t('on')]), el('option', { value: '0', selected: r.text !== '1' }, [t('off')])]);
+      } else if (variableType === 'textarea') {
         input = el('textarea', { value: r.text, onInput: (e: Event) => { r.text = (e.target as HTMLTextAreaElement).value; } });
       } else {
         input = el('input', { type: 'text', value: r.text, onInput: (e: Event) => { r.text = (e.target as HTMLInputElement).value; } });
@@ -388,23 +413,23 @@ export function setup(ctx: SpindleFrontendContext) {
       const line = el('div', { class: 'sp-line' }, [
         el('label', { class: 'sp-check' }, [el('input', { type: 'checkbox', checked: r.on, onChange: (e: Event) => { r.on = (e.target as HTMLInputElement).checked; } }), `${r.info.blockName} / ${r.info.label}`]),
         input,
-        (t === 'multiselect' || t === 'range') ? el('div', { class: 'sp-muted' }, ['JSON 형식으로 입력 (예: ["a","b"])']) : null,
-        r.info.blockEnabled ? null : el('div', { class: 'sp-muted' }, ['(이 블록은 지금 꺼져 있음)']),
+        (variableType === 'multiselect' || variableType === 'range') ? el('div', { class: 'sp-muted' }, [t('jsonHint')]) : null,
+        r.info.blockEnabled ? null : el('div', { class: 'sp-muted' }, [t('blockDisabled')]),
       ]);
       varRows.push({ node: line, row: r, text: `${r.info.blockName} ${r.info.label} ${r.info.name}`.toLowerCase() });
       box.append(line);
     }
     const orphanCount = Object.values(f.orphans).reduce((n, b) => n + Object.keys(b).length, 0);
-    if (orphanCount) box.append(el('div', { class: 'sp-muted' }, [`프리셋에 없는 변수 ${orphanCount}개는 그대로 보존되며 적용 때 건너뜁니다.`]));
+    if (orphanCount) box.append(el('div', { class: 'sp-muted' }, [t('orphanVariables', { count: orphanCount })]));
 
-    box.append(el('div', { class: 'sp-h' }, ['연결 (선택)']));
-    if (!canSwitch()) box.append(el('div', { class: 'sp-muted' }, [genDenied() ? '`generation` 권한이 허용되지 않아 연결 전환을 쓸 수 없습니다.' : '이 Lumiverse 버전에서는 연결 전환 기능을 쓸 수 없습니다.']));
+    box.append(el('div', { class: 'sp-h' }, [t('optionalConnection')]));
+    if (!canSwitch()) box.append(el('div', { class: 'sp-muted' }, [genDenied() ? t('switchPermission') : t('switchUnsupported')]));
     const connSel = el('select', { disabled: !canSwitch(), onChange: (e: Event) => { f.connectionId = (e.target as HTMLSelectElement).value; } },
-      [el('option', { value: '', selected: !f.connectionId }, ['바꾸지 않음']), ...conns.map((c) => el('option', { value: c.id, selected: c.id === f.connectionId }, [c.model ? `${c.name} (${c.model})` : c.name]))]);
-    box.append(el('div', { class: 'sp-field' }, [el('label', {}, ['적용할 때 이 연결로 전환']), connSel]));
-    box.append(el('div', { class: 'sp-muted' }, ['추론(API Reasoning·effort)은 연결에 묶인 설정을 따릅니다. 연결 설정에서 한 번 묶어 두세요.']));
+      [el('option', { value: '', selected: !f.connectionId }, [t('keepConnection')]), ...conns.map((c) => el('option', { value: c.id, selected: c.id === f.connectionId }, [c.model ? `${c.name} (${c.model})` : c.name]))]);
+    box.append(el('div', { class: 'sp-field' }, [el('label', {}, [t('switchOnApply')]), connSel]));
+    box.append(el('div', { class: 'sp-muted' }, [t('reasoningHint')]));
     if (canAuto()) {
-      box.append(el('div', { class: 'sp-field' }, [el('div', {}, ['이 연결을 고르면 자동 적용 (아래 "옵션"의 자동 적용이 켜져 있을 때)'])]));
+      box.append(el('div', { class: 'sp-field' }, [el('div', {}, [t('autoConnections')])]));
       for (const c of conns) {
         box.append(el('label', { class: 'sp-check' }, [
           el('input', { type: 'checkbox', checked: f.auto.has(c.id), onChange: (e: Event) => { if ((e.target as HTMLInputElement).checked) f.auto.add(c.id); else f.auto.delete(c.id); } }),
@@ -412,71 +437,81 @@ export function setup(ctx: SpindleFrontendContext) {
         ]));
       }
     }
-    box.append(el('div', { class: 'sp-row' }, [btn('저장', saveForm, 'sp-primary'), btn('취소', () => { form = null; render(); })]));
+    box.append(el('div', { class: 'sp-row' }, [btn(t('save'), saveForm, 'sp-primary'), btn(t('cancel'), () => { form = null; render(); })]));
     return box;
   }
 
   function render(): void {
-    const kids: Children = [];
+    panel.lang = language;
+    const languageSelect = el('select', { id: 'sp-language', value: languageSetting, onChange: (e: Event) => {
+      languageSetting = normalizeLanguage((e.target as HTMLSelectElement).value);
+      pendingLanguage = languageSetting;
+      updateLanguage();
+      toBackend({ type: 'set_settings', settings: { language: languageSetting } });
+    } }, (['auto', 'ko', 'en'] as const).map((value) => el('option', { value, selected: value === languageSetting }, [
+      t(value === 'auto' ? 'languageAuto' : value === 'ko' ? 'languageKo' : 'languageEn'),
+    ])));
+    const languageField = el('div', { class: 'sp-field' }, [el('label', { htmlFor: 'sp-language' }, [t('language')]), languageSelect]);
+    const kids: Children = [languageField];
     if (!st) {
-      panel.replaceChildren(el('div', { class: 'sp-muted' }, ['불러오는 중…']));
+      panel.replaceChildren(languageField, el('div', { class: 'sp-muted' }, [t('loading')]));
       return;
     }
     // Target preset
     const sel = el('select', { onChange: (e: Event) => pickPreset((e.target as HTMLSelectElement).value) },
-      st.presets.map((p) => el('option', { value: p.id, selected: p.id === selected }, [p.id === currentActive() ? `${p.name} (현재)` : p.name])));
-    kids.push(el('div', { class: 'sp-field' }, [el('label', { class: 'sp-h' }, ['대상 프리셋']), sel]));
-    kids.push(el('div', { class: 'sp-muted' }, ['프리셋의 블록과 정규식은 바꾸지 않고, 샘플러 값과 프롬프트 변수 값만 바꿉니다.']));
+      st.presets.map((p) => el('option', { value: p.id, selected: p.id === selected }, [p.id === currentActive() ? t('currentPreset', { name: p.name }) : p.name])));
+    kids.push(el('div', { class: 'sp-field' }, [el('label', { class: 'sp-h' }, [t('targetPreset')]), sel]));
+    kids.push(el('div', { class: 'sp-muted' }, [t('scopeHint')]));
 
     if (status) kids.push(el('div', { class: `sp-status sp-${statusLevel}` }, [status]));
 
     const mine = st.profiles.filter((p) => p.presetId === selected);
     const backup = selected ? st.backups[selected] : undefined;
     kids.push(el('div', { class: 'sp-row' }, [
-      btn('현재 값으로 저장', () => { form = newForm(null); render(); }, 'sp-primary', !detail),
-      backup ? btn(`되돌리기 (${backup.profileName})`, () => toBackend({ type: 'undo', presetId: selected!, ...editorInfo() })) : null,
+      btn(t('saveCurrent'), () => { form = newForm(null); render(); }, 'sp-primary', !detail),
+      backup ? btn(t('undoLabel', { name: backup.profileName }), () => toBackend({ type: 'undo', presetId: selected!, ...editorInfo() })) : null,
     ]));
     if (form) kids.push(renderForm(form));
 
-    kids.push(el('div', { class: 'sp-h' }, [`프로필 ${mine.length}개`]));
-    if (!mine.length) kids.push(el('div', { class: 'sp-muted' }, ['이 프리셋에 저장된 프로필이 없습니다.']));
+    kids.push(el('div', { class: 'sp-h' }, [t('profileCount', { count: mine.length })]));
+    if (!mine.length) kids.push(el('div', { class: 'sp-muted' }, [t('noProfiles')]));
     for (const p of mine) {
       kids.push(el('div', { class: 'sp-card' }, [
         el('div', { class: 'sp-title' }, [p.name]),
         el('div', { class: 'sp-muted' }, [summary(p)]),
         el('div', { class: 'sp-row' }, [
-          btn('적용', () => void doApply(p), 'sp-primary'),
-          btn('편집', () => { form = newForm(p); render(); }, '', !detail),
-          btn('삭제', () => { if (confirm(`'${p.name}' 프로필을 삭제할까요?`)) toBackend({ type: 'delete', id: p.id }); }, 'sp-danger'),
+          btn(t('apply'), () => void doApply(p), 'sp-primary'),
+          btn(t('edit'), () => { form = newForm(p); render(); }, '', !detail),
+          btn(t('delete'), () => { if (confirm(t('deleteConfirm', { name: p.name }))) toBackend({ type: 'delete', id: p.id }); }, 'sp-danger'),
         ]),
       ]));
     }
     const others = st.profiles.length - mine.length;
-    if (others) kids.push(el('div', { class: 'sp-muted' }, [`다른 프리셋의 프로필 ${others}개는 위 목록에서 해당 프리셋을 고르면 보입니다.`]));
+    if (others) kids.push(el('div', { class: 'sp-muted' }, [t('otherProfiles', { count: others })]));
 
-    kids.push(el('div', { class: 'sp-h' }, ['옵션']));
+    kids.push(el('div', { class: 'sp-h' }, [t('options')]));
     kids.push(el('label', { class: 'sp-check' }, [
       el('input', { type: 'checkbox', checked: st.settings.autoApply && canAuto(), disabled: !canAuto(), onChange: (e: Event) => toBackend({ type: 'set_settings', settings: { autoApply: (e.target as HTMLInputElement).checked } }) }),
-      '연결을 바꾸면 그 연결에 묶인 프로필 자동 적용',
+      t('autoApply'),
     ]));
     if (!canAuto()) {
       kids.push(el('div', { class: 'sp-status sp-warning' }, [
-        genDenied() ? '`generation` 권한이 허용되지 않아 연결 전환과 자동 적용을 쓸 수 없습니다. 확장 설정에서 권한을 허용하세요.'
-          : typeof connApi()?.subscribe !== 'function' || typeof connApi()?.getActive !== 'function' ? '이 Lumiverse 버전은 연결 변경 알림을 주지 않아 자동 적용을 쓸 수 없습니다.'
-          : '이 Lumiverse에서는 현재 프리셋을 알 수 없어 자동 적용을 쓸 수 없습니다. 프로필의 "적용" 버튼을 쓰세요.',
+        genDenied() ? t('autoPermission')
+          : typeof connApi()?.subscribe !== 'function' || typeof connApi()?.getActive !== 'function' ? t('autoUnsupported')
+          : t('activeUnknown'),
       ]));
     }
     const file = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none', onChange: (e: Event) => {
       const f = (e.target as HTMLInputElement).files?.[0];
       if (!f) return;
-      if (f.size > 2 * 1024 * 1024) { show('error', '파일이 너무 큽니다 (2MB 초과).'); return; }
-      void f.text().then((text) => toBackend({ type: 'import', text }));
+      if (f.size > 2 * 1024 * 1024) { show('error', t('fileTooLarge')); return; }
+      void f.text().then((text) => toBackend({ type: 'import', text })).catch(() => show('error', t('unexpectedError')));
     } });
     kids.push(el('div', { class: 'sp-row' }, [
-      btn('내보내기 (JSON)', () => toBackend({ type: 'export' })),
-      btn('가져오기', () => file.click()),
+      btn(t('export'), () => toBackend({ type: 'export' })),
+      btn(t('import'), () => file.click()),
       file,
-      btn('새로 고침', reload),
+      btn(t('refresh'), reload),
     ]));
     panel.replaceChildren(...(kids.filter(Boolean) as Node[]));
   }
@@ -487,6 +522,11 @@ export function setup(ctx: SpindleFrontendContext) {
     switch (msg?.type) {
       case 'state': {
         st = msg;
+        const storedLanguage = normalizeLanguage(msg.settings.language);
+        if (storedLanguage === pendingLanguage) pendingLanguage = null;
+        // An older load/save reply must not undo the user's latest selection while it is saving.
+        if (pendingLanguage === null) languageSetting = storedLanguage;
+        updateLanguage();
         const stillThere = selected && st.presets.some((p) => p.id === selected);
         if (!stillThere) {
           const act = currentActive();
@@ -498,11 +538,11 @@ export function setup(ctx: SpindleFrontendContext) {
         return;
       }
       case 'detail':
-        if (msg.presetId === selected) { detail = msg.detail; if (!msg.detail) status = '프리셋을 읽지 못했습니다.'; render(); }
+        if (msg.presetId === selected) { detail = msg.detail; if (!msg.detail) status = t('presetReadFailed'); render(); }
         return;
       case 'result':
         status = msg.text; statusLevel = msg.level;
-        if (msg.presetId === selected || msg.presetId === undefined) {
+        if (msg.refresh !== false && (msg.presetId === selected || msg.presetId === undefined)) {
           if (selected) toBackend({ type: 'detail', presetId: selected });
         }
         render();
@@ -524,11 +564,23 @@ export function setup(ctx: SpindleFrontendContext) {
     }
   });
 
+  // Optional on older hosts. The callback's locale value is intentionally ignored: ko is mapped to en.
+  const locale = (ctx as unknown as { locale?: { subscribe?: (listener: () => void) => () => void } }).locale;
+  let offLocale: (() => void) | undefined;
+  try { offLocale = locale?.subscribe?.(() => updateLanguage()); } catch { /* older host */ }
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === HOST_LANGUAGE_KEY || event.key === null) updateLanguage();
+  };
+  window.addEventListener('storage', onStorage);
+  window.addEventListener('languagechange', updateLanguage);
   render();
   reload();
 
   return () => {
-    offBackend(); offActivate(); offSub?.(); offActive?.();
+    offBackend(); offActivate(); offSub?.(); offActive?.(); offLocale?.();
+    window.removeEventListener('storage', onStorage);
+    window.removeEventListener('languagechange', updateLanguage);
+    offInputClick?.(); inputAction?.destroy();
     if (debounce) clearTimeout(debounce);
     tab.destroy(); removeStyle(); ctx.dom.cleanup();
   };

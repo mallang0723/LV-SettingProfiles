@@ -1,10 +1,12 @@
 # Setting Profiles for Lumiverse · 설정 프로필
 
-Version **0.1.0** · [한국어](#한국어)
+Version **0.2.0-v1** · [한국어](#한국어)
 
 Use one [Lumiverse](https://lumiverse.chat/) preset with different models: save selected sampler settings and prompt-variable values as profiles, optionally attach a connection, and apply them together. Keep your prompt structure without duplicating presets or editing blocks and regex scripts.
 
-The interface is **Korean**; this guide includes the actual button labels.
+One extension includes both Korean and English UI. In the Profiles Drawer tab, choose **언어 / Language → Auto / 한국어 / English**. The default is **Auto**; changes apply immediately without reloading and are saved per Lumiverse user.
+
+**Auto follows Lumiverse's interface language (Settings → Display → Interface language)**, stored as `lumiverse-ui-language`: Korean selects Korean; every other stored language selects English. If no preference is stored (or storage is unavailable), Auto uses `navigator.language`: Korean when it starts with `ko`, otherwise English. Manual selection overrides Auto. Auto updates when the host language changes or a browser storage event arrives. Screenshots show the Korean UI; the guide lists both button labels.
 
 ![Profiles drawer tab with a target preset and two saved profile cards](docs/images/profiles-tab.png)
 
@@ -55,6 +57,8 @@ The interface is **Korean**; this guide includes the actual button labels.
 
 ## Settings
 
+**언어 / Language** defaults to **Auto** and can be changed to **한국어** or **English** at any time. The input-bar menu entry also opens the Profiles Drawer.
+
 **Auto-apply is off by default.** Under **옵션** (Options), enable **연결을 바꾸면 그 연결에 묶인 프로필 자동 적용**. In a profile, check connections under **이 연결을 고르면 자동 적용**, then save.
 
 Only profiles for the **active preset** qualify. Assign one profile per preset/connection; the first stored match wins. Auto-apply runs on connection changes while Lumiverse and the extension are loaded—not on preset changes or simply enabling the option. Test by switching away and back.
@@ -88,7 +92,7 @@ The extension reads presets, connection details, active-preset state, and the cu
 
 ## Limitations
 
-Settings affect the preset, not individual chats. Only defined variables apply; input checks do not guarantee model/provider support. Imports work where the original preset/connection IDs exist. The editor and binding limitations also apply to undo and auto-apply. English UI is not yet available.
+Settings affect the preset, not individual chats. Only defined variables apply; input checks do not guarantee model/provider support. Imports work where the original preset/connection IDs exist. The editor and binding limitations also apply to undo and auto-apply.
 
 ## License and credits
 
@@ -96,17 +100,21 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 
 ## Changelog
 
+- **0.2.0-v1** — One build with Korean/English UI, per-user language selection, live Auto language updates, and localized results and input-bar shortcut.
+
 - **0.1.0** — Sampler/variable profiles, connection switching and auto-apply, one-level undo, JSON import/export, conflict retry, and open-editor handling.
 
 ---
 
 # 한국어
 
-버전 **0.1.0**
+버전 **0.2.0-v1**
 
 같은 [Lumiverse](https://lumiverse.chat/) 프리셋을 여러 모델에 맞춰 사용하세요. 선택한 샘플러 설정과 프롬프트 변수 값을 프로필로 저장하고, 필요하면 연결도 지정해 한 번에 적용합니다. 프리셋을 복사하거나 블록·정규식을 수정하지 않고 프롬프트 구조를 유지할 수 있습니다.
 
-화면은 **한국어**이며, 위 영문 안내에도 실제 버튼명을 함께 표기했습니다.
+하나의 확장에서 한국어와 영어 UI를 모두 제공합니다. 프로필 Drawer 탭의 **언어 / Language → Auto / 한국어 / English**에서 선택하세요. 기본값은 **Auto**이며, 새로 고침 없이 즉시 적용되고 Lumiverse 사용자별로 저장됩니다.
+
+**Auto는 Lumiverse의 인터페이스 언어(설정 → 화면 표시 → 인터페이스 언어)**를 따릅니다. `lumiverse-ui-language`에 저장된 값이 한국어이면 한국어, 그 외에는 영어를 표시합니다. 저장값이 없거나 저장소를 읽을 수 없을 때만 브라우저의 `navigator.language`가 `ko`로 시작하면 한국어, 아니면 영어를 사용합니다. 수동 선택이 Auto보다 우선하며, Auto 상태에서는 호스트 언어 변경과 브라우저 저장소 이벤트를 즉시 반영합니다. 스크린샷은 한국어 UI 기준입니다.
 
 ![대상 프리셋과 저장한 프로필 카드가 보이는 프로필 탭](docs/images/profiles-tab.png)
 
@@ -157,6 +165,8 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 
 ## 설정
 
+**언어 / Language**의 기본값은 **Auto**이며, 언제든 **한국어**나 **English**로 바꿀 수 있습니다. 입력창 메뉴에서도 프로필 Drawer를 열 수 있습니다.
+
 **자동 적용은 기본 꺼짐**입니다. **옵션**에서 **연결을 바꾸면 그 연결에 묶인 프로필 자동 적용**을 켜고, 프로필의 **이 연결을 고르면 자동 적용**에 연결을 체크해 저장하세요.
 
 **활성 프리셋**의 프로필만 적용합니다. 여러 개가 일치하면 저장 목록의 첫 번째가 선택되므로 프리셋·연결 조합마다 하나를 지정하세요. Lumiverse와 확장이 로드된 동안 연결 변경에 반응하며, 프리셋만 바꾸거나 옵션만 켜서는 실행되지 않습니다. 다른 연결로 갔다가 돌아와 시험하세요.
@@ -190,12 +200,14 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 
 ## 한계
 
-설정은 개별 채팅이 아닌 프리셋에 적용됩니다. 정의된 변수만 적용하며, 입력 검사가 모델·제공자의 지원까지 보장하지는 않습니다. 가져오기는 원래 프리셋·연결 ID가 남아 있는 환경에서 사용하세요. 편집기·바인딩 제한은 되돌리기와 자동 적용에도 해당합니다. 영어 UI는 아직 없습니다.
+설정은 개별 채팅이 아닌 프리셋에 적용됩니다. 정의된 변수만 적용하며, 입력 검사가 모델·제공자의 지원까지 보장하지는 않습니다. 가져오기는 원래 프리셋·연결 ID가 남아 있는 환경에서 사용하세요. 편집기·바인딩 제한은 되돌리기와 자동 적용에도 해당합니다.
 
 ## 라이선스와 크레딧
 
 [MIT](LICENSE). 기존 저작권·저작자 표기는 [LICENSE](LICENSE)에, author 필드는 [spindle.json](spindle.json)에 유지됩니다.
 
 ## 변경 기록
+
+- **0.2.0-v1** — 단일 빌드의 한국어·영어 UI, 사용자별 언어 설정, Auto 실시간 반영, 결과 메시지 번역과 입력창 메뉴.
 
 - **0.1.0** — 샘플러·변수 프로필, 연결 전환·자동 적용, 한 단계 되돌리기, JSON 가져오기·내보내기, 충돌 재시도, 열린 편집기 처리.

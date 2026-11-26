@@ -1,4 +1,275 @@
 // @bun
+// src/i18n.ts
+var messages = {
+  ko: {
+    title: "\uC124\uC815 \uD504\uB85C\uD544",
+    profileKeyword: "profile",
+    profiles: "\uD504\uB85C\uD544",
+    description: "\uBAA8\uB378\uBCC4 \uC0D8\uD50C\uB7EC\xB7\uD504\uB86C\uD504\uD2B8 \uBCC0\uC218\xB7\uC5F0\uACB0 \uD504\uB85C\uD544",
+    perModel: "\uBAA8\uB378\uBCC4",
+    sampler: "\uC0D8\uD50C\uB7EC",
+    variables: "\uD504\uB86C\uD504\uD2B8 \uBCC0\uC218",
+    sampler_enabled: "\uC0D8\uD50C\uB7EC \uAC12 \uC0AC\uC6A9",
+    sampler_maxTokens: "\uCD5C\uB300 \uD1A0\uD070 (maxTokens)",
+    sampler_contextSize: "\uCEE8\uD14D\uC2A4\uD2B8 \uD06C\uAE30",
+    sampler_temperature: "\uC628\uB3C4 (temperature)",
+    sampler_topP: "Top P",
+    sampler_minP: "Min P",
+    sampler_topK: "Top K",
+    sampler_frequencyPenalty: "Frequency \uD398\uB110\uD2F0",
+    sampler_presencePenalty: "Presence \uD398\uB110\uD2F0",
+    sampler_repetitionPenalty: "Repetition \uD398\uB110\uD2F0",
+    sampler_streaming: "\uC2A4\uD2B8\uB9AC\uBC0D",
+    notNumber: "\uC22B\uC790\uAC00 \uC544\uB2D9\uB2C8\uB2E4",
+    rangeShape: "[\uCD5C\uC18C, \uCD5C\uB300] \uC22B\uC790 \uB450 \uAC1C\uC5EC\uC57C \uD569\uB2C8\uB2E4 (\uC608: [1, 5])",
+    rangeOrder: "\uCD5C\uC18C\uAC00 \uCD5C\uB300\uBCF4\uB2E4 \uD074 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4",
+    multiselectShape: '\uC120\uD0DD\uC9C0 id\uC758 \uBC30\uC5F4\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4 (\uC608: ["a","b"])',
+    editorClosed: "\uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uB354 \uC774\uC0C1 \uC5F4\uACE0 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.",
+    editorRejected: "\uD3B8\uC9D1\uAE30\uAC00 \uAC12\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
+    unknown: "(\uC54C \uC218 \uC5C6\uC74C)",
+    empty: "\uBE44\uC5B4 \uC788\uC74C",
+    nameRequired: "\uD504\uB85C\uD544 \uC774\uB984\uC744 \uC785\uB825\uD558\uC138\uC694.",
+    editProfile: "\uD504\uB85C\uD544 \uD3B8\uC9D1",
+    newProfile: "\uD604\uC7AC \uAC12\uC73C\uB85C \uC0C8 \uD504\uB85C\uD544",
+    name: "\uC774\uB984",
+    namePlaceholder: "\uC608: \uBAA8\uB378 A",
+    fieldsHint: '\uCCB4\uD06C\uD55C \uD56D\uBAA9\uB9CC \uC801\uC6A9\uB429\uB2C8\uB2E4. \uCC98\uC74C\uC5D0\uB294 \uAE30\uBCF8\uAC12\uACFC \uB2E4\uB978 \uAC12\uB9CC \uCCB4\uD06C\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4. \uCCB4\uD06C\uD558\uC9C0 \uC54A\uC740 \uAC12\uC740 \uAC74\uB4DC\uB9AC\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC22B\uC790 \uCE78\uC744 \uBE44\uC6B0\uBA74 "\uBE44\uC6C0"\uC73C\uB85C \uC801\uC6A9\uB429\uB2C8\uB2E4.',
+    samplerFormWarning: '\uC774 \uD504\uB9AC\uC14B\uC740 \uC0D8\uD50C\uB7EC \uC0AC\uC6A9\uC774 \uAEBC\uC838 \uC788\uC2B5\uB2C8\uB2E4. \uC544\uB798 "\uC0D8\uD50C\uB7EC \uAC12 \uC0AC\uC6A9 = \uCF2C"\uC744 \uD568\uAED8 \uB123\uC9C0 \uC54A\uC73C\uBA74 \uC801\uC6A9\uD574\uB3C4 \uC0DD\uC131\uC5D0 \uBC18\uC601\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.',
+    on: "\uCF2C",
+    off: "\uB054",
+    clear: "\uBE44\uC6C0",
+    noVariables: "\uC774 \uD504\uB9AC\uC14B\uC5D0\uB294 \uD504\uB86C\uD504\uD2B8 \uBCC0\uC218\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    emptyValue: "(\uBE48 \uAC12)",
+    jsonHint: 'JSON \uD615\uC2DD\uC73C\uB85C \uC785\uB825 (\uC608: ["a","b"])',
+    blockDisabled: "(\uC774 \uBE14\uB85D\uC740 \uC9C0\uAE08 \uAEBC\uC838 \uC788\uC74C)",
+    optionalConnection: "\uC5F0\uACB0 (\uC120\uD0DD)",
+    switchPermission: "`generation` \uAD8C\uD55C\uC774 \uD5C8\uC6A9\uB418\uC9C0 \uC54A\uC544 \uC5F0\uACB0 \uC804\uD658\uC744 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    switchUnsupported: "\uC774 Lumiverse \uBC84\uC804\uC5D0\uC11C\uB294 \uC5F0\uACB0 \uC804\uD658 \uAE30\uB2A5\uC744 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    keepConnection: "\uBC14\uAFB8\uC9C0 \uC54A\uC74C",
+    switchOnApply: "\uC801\uC6A9\uD560 \uB54C \uC774 \uC5F0\uACB0\uB85C \uC804\uD658",
+    reasoningHint: "\uCD94\uB860(API Reasoning\xB7effort)\uC740 \uC5F0\uACB0\uC5D0 \uBB36\uC778 \uC124\uC815\uC744 \uB530\uB985\uB2C8\uB2E4. \uC5F0\uACB0 \uC124\uC815\uC5D0\uC11C \uD55C \uBC88 \uBB36\uC5B4 \uB450\uC138\uC694.",
+    autoConnections: '\uC774 \uC5F0\uACB0\uC744 \uACE0\uB974\uBA74 \uC790\uB3D9 \uC801\uC6A9 (\uC544\uB798 "\uC635\uC158"\uC758 \uC790\uB3D9 \uC801\uC6A9\uC774 \uCF1C\uC838 \uC788\uC744 \uB54C)',
+    save: "\uC800\uC7A5",
+    cancel: "\uCDE8\uC18C",
+    loading: "\uBD88\uB7EC\uC624\uB294 \uC911\u2026",
+    targetPreset: "\uB300\uC0C1 \uD504\uB9AC\uC14B",
+    scopeHint: "\uD504\uB9AC\uC14B\uC758 \uBE14\uB85D\uACFC \uC815\uADDC\uC2DD\uC740 \uBC14\uAFB8\uC9C0 \uC54A\uACE0, \uC0D8\uD50C\uB7EC \uAC12\uACFC \uD504\uB86C\uD504\uD2B8 \uBCC0\uC218 \uAC12\uB9CC \uBC14\uAFC9\uB2C8\uB2E4.",
+    saveCurrent: "\uD604\uC7AC \uAC12\uC73C\uB85C \uC800\uC7A5",
+    noProfiles: "\uC774 \uD504\uB9AC\uC14B\uC5D0 \uC800\uC7A5\uB41C \uD504\uB85C\uD544\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    apply: "\uC801\uC6A9",
+    edit: "\uD3B8\uC9D1",
+    delete: "\uC0AD\uC81C",
+    options: "\uC635\uC158",
+    autoApply: "\uC5F0\uACB0\uC744 \uBC14\uAFB8\uBA74 \uADF8 \uC5F0\uACB0\uC5D0 \uBB36\uC778 \uD504\uB85C\uD544 \uC790\uB3D9 \uC801\uC6A9",
+    autoPermission: "`generation` \uAD8C\uD55C\uC774 \uD5C8\uC6A9\uB418\uC9C0 \uC54A\uC544 \uC5F0\uACB0 \uC804\uD658\uACFC \uC790\uB3D9 \uC801\uC6A9\uC744 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD655\uC7A5 \uC124\uC815\uC5D0\uC11C \uAD8C\uD55C\uC744 \uD5C8\uC6A9\uD558\uC138\uC694.",
+    autoUnsupported: "\uC774 Lumiverse \uBC84\uC804\uC740 \uC5F0\uACB0 \uBCC0\uACBD \uC54C\uB9BC\uC744 \uC8FC\uC9C0 \uC54A\uC544 \uC790\uB3D9 \uC801\uC6A9\uC744 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    activeUnknown: '\uC774 Lumiverse\uC5D0\uC11C\uB294 \uD604\uC7AC \uD504\uB9AC\uC14B\uC744 \uC54C \uC218 \uC5C6\uC5B4 \uC790\uB3D9 \uC801\uC6A9\uC744 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD504\uB85C\uD544\uC758 "\uC801\uC6A9" \uBC84\uD2BC\uC744 \uC4F0\uC138\uC694.',
+    fileTooLarge: "\uD30C\uC77C\uC774 \uB108\uBB34 \uD07D\uB2C8\uB2E4 (2MB \uCD08\uACFC).",
+    export: "\uB0B4\uBCF4\uB0B4\uAE30 (JSON)",
+    import: "\uAC00\uC838\uC624\uAE30",
+    refresh: "\uC0C8\uB85C \uACE0\uCE68",
+    presetReadFailed: "\uD504\uB9AC\uC14B\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
+    source_chat: "\uCC44\uD305",
+    source_persona: "\uD398\uB974\uC18C\uB098",
+    source_character: "\uCE90\uB9AD\uD130",
+    source_connection: "\uC5F0\uACB0",
+    source_defaults: "\uAE30\uBCF8\uAC12",
+    editorSessionMissing: "\uD3B8\uC9D1\uAE30\uB97C \uAC00\uC9C4 \uD654\uBA74\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    editorTimeout: "\uD3B8\uC9D1\uAE30\uAC00 \uC2DC\uAC04 \uC548\uC5D0 \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.",
+    presetMissing: "\uB300\uC0C1 \uD504\uB9AC\uC14B\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0AD\uC81C\uB418\uC5C8\uAC70\uB098 \uB2E4\uB978 \uACC4\uC815\uC758 \uD504\uB9AC\uC14B\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4.",
+    conflict: "\uB2E4\uB978 \uACF3\uC5D0\uC11C \uD504\uB9AC\uC14B\uC774 \uBC14\uB00C\uC5B4 \uC801\uC6A9\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.",
+    profileFieldsRequired: "\uC774\uB984\uACFC \uB300\uC0C1 \uD504\uB9AC\uC14B\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.",
+    profileMissing: "\uD504\uB85C\uD544\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    autoActiveUnknown: '\uC124\uC815 \uD504\uB85C\uD544 \uC790\uB3D9 \uC801\uC6A9\uC744 \uAC74\uB108\uB6F0\uC5C8\uC2B5\uB2C8\uB2E4: \uC774 Lumiverse\uC5D0\uC11C\uB294 \uD604\uC7AC \uD504\uB9AC\uC14B\uC744 \uC54C \uC218 \uC5C6\uC5B4 \uC790\uB3D9 \uC801\uC6A9\uC744 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD504\uB85C\uD544\uC758 "\uC801\uC6A9" \uBC84\uD2BC\uC744 \uC4F0\uC138\uC694.',
+    undoRefused: "\uB418\uB3CC\uB9AC\uAE30\uB97C \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uB294\uB370 \uC774 Lumiverse\uB294 \uD3B8\uC9D1\uAE30\uB97C \uD1B5\uD55C \uC801\uC6A9\uC744 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.",
+    undoAction: "\uB418\uB3CC\uB9BC",
+    noBackup: "\uB418\uB3CC\uB9B4 \uBC31\uC5C5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    editorReplyFailed: "\uD3B8\uC9D1\uAE30\uAC00 \uAC12\uC744 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
+    importEmpty: "\uAC00\uC838\uC628 \uD504\uB85C\uD544\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    samplerDisabled: '\uC774 \uD504\uB9AC\uC14B\uC740 \uC0D8\uD50C\uB7EC \uC0AC\uC6A9\uC774 \uAEBC\uC838 \uC788\uC5B4, \uC801\uC6A9\uD55C \uC0D8\uD50C\uB7EC \uAC12\uC774 \uC0DD\uC131\uC5D0 \uBC18\uC601\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uC0D8\uD50C\uB7EC\uB97C \uCF1C\uAC70\uB098, \uD504\uB85C\uD544\uC5D0 "\uC0D8\uD50C\uB7EC \uAC12 \uC0AC\uC6A9 = \uCF2C"\uC744 \uB123\uC73C\uC138\uC694.',
+    editorVariablesNote: "\uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC5B4, \uD504\uB86C\uD504\uD2B8 \uBCC0\uC218 \uAC12\uC740 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE58\uAC70\uB098 Loom\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE8\uB790\uB2E4\uAC00 \uB3CC\uC544\uC62C \uB54C\uAE4C\uC9C0 \uD654\uBA74\uC5D0 \uC61B \uAC12\uC73C\uB85C \uBCF4\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4(\uC800\uC7A5\uB41C \uAC12\uC740 \uBC14\uB00C\uC5C8\uACE0 \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uB2E4\uB978 \uAC12\uC744 \uACE0\uCCD0\uB3C4 \uB418\uB3CC\uB824\uC9C0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4). \uADF8 \uC804\uC5D0 \uD3B8\uC9D1\uAE30\uC758 '\uBCC0\uC218 \uC124\uC815' \uCC3D\uC5D0\uC11C \uC800\uC7A5\uD558\uBA74, \uC801\uC6A9\uD55C \uBCC0\uC218 \uAC12\uC774 \uC61B \uAC12\uC73C\uB85C \uB418\uB3CC\uC544\uAC11\uB2C8\uB2E4.",
+    fallbackStaleNote: "\uC774 \uACBD\uC6B0 \uD3B8\uC9D1\uAE30\uC5D0\uB294 \uC61B \uC0D8\uD50C\uB7EC \uAC12\uC774 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C \uACE0\uCE58\uAE30 \uC804\uC5D0 \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uC0D8\uD50C\uB7EC \uAC12\uC744 \uACE0\uCCD0 \uC800\uC7A5\uD558\uBA74, \uD3B8\uC9D1\uAE30\uAC00 \uC0D8\uD50C\uB7EC \uBB36\uC74C \uC804\uCCB4\uB97C \uC790\uAE30\uAC00 \uAC00\uC9C4 \uC61B \uAC12\uC73C\uB85C \uC368\uC11C \uBC29\uAE08 \uC801\uC6A9\uD55C \uC0D8\uD50C\uB7EC \uAC12\uC774 \uB418\uB3CC\uC544\uAC11\uB2C8\uB2E4(\uD3B8\uC9D1\uAE30\uB294 \uACE0\uCE5C \uD56D\uBAA9 \uBB36\uC74C\uB9CC \uC800\uC7A5\uD558\uBBC0\uB85C \uBE14\uB85D \uB4F1 \uB2E4\uB978 \uD56D\uBAA9\uB9CC \uACE0\uCE58\uBA74 \uC601\uD5A5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4).",
+    fallbackBlocks: "\uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC758 \uBE14\uB85D \uD615\uC2DD\uC744 \uBC1B\uC9C0 \uC54A\uC544(\uD504\uB9AC\uC14B \uB370\uC774\uD130 \uBB38\uC81C) \uC11C\uBC84\uC5D0 \uC9C1\uC811 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4.",
+    invalidJson: "JSON\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.",
+    invalidExport: "\uC774 \uD655\uC7A5\uC5D0\uC11C \uB0B4\uBCF4\uB0B8 \uD30C\uC77C\uC774 \uC544\uB2D9\uB2C8\uB2E4.",
+    importSkipped: "\uC774\uB984\uC774\uB098 \uB300\uC0C1 \uD504\uB9AC\uC14B\uC774 \uC5C6\uB294 \uD56D\uBAA9\uC744 \uAC74\uB108\uB6F0\uC5C8\uC2B5\uB2C8\uB2E4.",
+    language: "\uC5B8\uC5B4 / Language",
+    languageAuto: "Auto",
+    languageKo: "\uD55C\uAD6D\uC5B4",
+    languageEn: "English",
+    unexpectedError: "\uC791\uC5C5\uC744 \uC644\uB8CC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.",
+    invalidVariableJson: "\uC62C\uBC14\uB978 JSON \uAC12\uC744 \uC785\uB825\uD558\uC138\uC694.",
+    missingOptions: "\uC5C6\uB294 \uC120\uD0DD\uC9C0: {options}",
+    switchFailed: "\uC5F0\uACB0\uC744 \uBC14\uAFB8\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: {error}",
+    samplerCount: "\uC0D8\uD50C\uB7EC {count}",
+    variableCount: "\uBCC0\uC218 {count}",
+    connectionSummary: "\uC5F0\uACB0: {name}",
+    autoCount: "\uC790\uB3D9 {count}",
+    searchVariables: "\uBCC0\uC218 \uAC80\uC0C9 ({count}\uAC1C)",
+    orphanVariables: "\uD504\uB9AC\uC14B\uC5D0 \uC5C6\uB294 \uBCC0\uC218 {count}\uAC1C\uB294 \uADF8\uB300\uB85C \uBCF4\uC874\uB418\uBA70 \uC801\uC6A9 \uB54C \uAC74\uB108\uB701\uB2C8\uB2E4.",
+    currentPreset: "{name} (\uD604\uC7AC)",
+    undoLabel: "\uB418\uB3CC\uB9AC\uAE30 ({name})",
+    profileCount: "\uD504\uB85C\uD544 {count}\uAC1C",
+    deleteConfirm: "'{name}' \uD504\uB85C\uD544\uC744 \uC0AD\uC81C\uD560\uAE4C\uC694?",
+    otherProfiles: "\uB2E4\uB978 \uD504\uB9AC\uC14B\uC758 \uD504\uB85C\uD544 {count}\uAC1C\uB294 \uC704 \uBAA9\uB85D\uC5D0\uC11C \uD574\uB2F9 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uBA74 \uBCF4\uC785\uB2C8\uB2E4.",
+    skippedVariables: " (\uD504\uB9AC\uC14B\uC5D0 \uC5C6\uB294 \uBCC0\uC218 {count}\uAC1C\uB294 \uAC74\uB108\uB700)",
+    appliedResult: "{action}\uD588\uC2B5\uB2C8\uB2E4.{skip}",
+    noopResult: "{action}: \uC774\uBBF8 \uAC19\uC740 \uAC12\uC774\uB77C \uBC14\uAFC0 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.",
+    autoRefused: "'{name}' \uC790\uB3D9 \uC801\uC6A9\uC744 \uAC74\uB108\uB6F0\uC5C8\uC2B5\uB2C8\uB2E4: \uC774 Lumiverse\uC758 \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uB294 \uD655\uC7A5\uC774 \uAC12\uC744 \uB123\uC744 \uC218 \uC5C6\uC5B4, \uC5F4\uC5B4 \uB454 \uD504\uB9AC\uC14B\uC5D0\uB294 \uC801\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uC9C1\uC811 \uC801\uC6A9\uD558\uC138\uC694.",
+    applyRefused: "'{name}' \uC801\uC6A9\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uB294\uB370 \uC774 Lumiverse\uB294 \uD3B8\uC9D1\uAE30\uB97C \uD1B5\uD55C \uC801\uC6A9\uC744 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC544, \uC801\uC6A9\uAC12\uC774 \uD3B8\uC9D1\uAE30\uC758 \uC61B \uAC12\uC5D0 \uB36E\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC801\uC6A9\uD558\uC138\uC694.",
+    applyFailed: "'{name}' \uC801\uC6A9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4: {error}",
+    autoApplyFailed: "'{name}' \uC790\uB3D9 \uC801\uC6A9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4: {error}",
+    applyAction: "'{name}' \uC801\uC6A9",
+    autoApplyAction: "'{name}' \uC790\uB3D9 \uC801\uC6A9",
+    bindingWarning: `
+\uC774 \uCC44\uD305\uC5D0\uB294 \uD504\uB9AC\uC14B \uD504\uB85C\uD544 \uBC14\uC778\uB529({source})\uC774 \uC788\uC5B4, \uD504\uB86C\uD504\uD2B8 \uBCC0\uC218 \uAC12\uC774 \uADF8 \uBC14\uC778\uB529 \uAC12\uC5D0 \uAC00\uB824\uC9C8 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`,
+    profileSaved: "'{name}' \uD504\uB85C\uD544\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.",
+    undoFailed: "\uB418\uB3CC\uB9AC\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4: {error}",
+    undoSuccess: "\uC9C1\uC804 \uAC12\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.{note}",
+    importCount: "{count}\uAC1C\uB97C \uAC00\uC838\uC654\uC2B5\uB2C8\uB2E4.",
+    fallbackReason: "\uD3B8\uC9D1\uAE30\uB97C \uD1B5\uD55C \uC801\uC6A9\uC774 \uB418\uC9C0 \uC54A\uC544({reason}) \uC11C\uBC84\uC5D0 \uC9C1\uC811 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4.",
+    fallbackNote: `{lead} \uD3B8\uC9D1\uAE30 \uD654\uBA74\uC740 \uC0C8\uB85C \uACE0\uCE58\uBA74 \uB9DE\uCDB0\uC9D1\uB2C8\uB2E4.
+{stale}{variables}`
+  },
+  en: {
+    title: "Setting Profiles",
+    profileKeyword: "profile",
+    profiles: "Profiles",
+    description: "Sampler, Prompt Variables, and Connection profiles for each model",
+    perModel: "per model",
+    sampler: "Sampler",
+    variables: "Prompt Variables",
+    sampler_enabled: "Use sampler values",
+    sampler_maxTokens: "Max tokens (maxTokens)",
+    sampler_contextSize: "Context size",
+    sampler_temperature: "Temperature",
+    sampler_topP: "Top P",
+    sampler_minP: "Min P",
+    sampler_topK: "Top K",
+    sampler_frequencyPenalty: "Frequency penalty",
+    sampler_presencePenalty: "Presence penalty",
+    sampler_repetitionPenalty: "Repetition penalty",
+    sampler_streaming: "Streaming",
+    notNumber: "Enter a valid number",
+    rangeShape: "Enter two numbers as [min, max] (e.g. [1, 5])",
+    rangeOrder: "Minimum cannot exceed maximum",
+    multiselectShape: 'Enter an array of option IDs (e.g. ["a","b"])',
+    editorClosed: "The editor no longer has this Preset open.",
+    editorRejected: "The editor did not accept the values.",
+    unknown: "(unknown)",
+    empty: "Empty",
+    nameRequired: "Enter a profile name.",
+    editProfile: "Edit profile",
+    newProfile: "New profile from current values",
+    name: "Name",
+    namePlaceholder: "e.g. Model A",
+    fieldsHint: "Only checked fields apply. Values differing from defaults start checked. Unchecked fields stay unchanged. Leave a numeric field blank to clear its override.",
+    samplerFormWarning: "Samplers are off for this Preset. Include \u2018Use sampler values = On\u2019 below for these values to affect generation.",
+    on: "On",
+    off: "Off",
+    clear: "Clear",
+    noVariables: "This Preset has no Prompt Variables.",
+    emptyValue: "(empty value)",
+    jsonHint: 'Enter JSON (e.g. ["a","b"])',
+    blockDisabled: "(This block is currently disabled)",
+    optionalConnection: "Connection (optional)",
+    switchPermission: "Connection switching requires the `generation` permission.",
+    switchUnsupported: "This Lumiverse version does not support Connection switching.",
+    keepConnection: "Keep current Connection",
+    switchOnApply: "Switch to this Connection on apply",
+    reasoningHint: "Reasoning (API Reasoning / effort) follows the Connection\u2019s bindings. Configure it in Connection settings.",
+    autoConnections: "Auto-apply when selecting these Connections (enable auto-apply under Options below)",
+    save: "Save",
+    cancel: "Cancel",
+    loading: "Loading\u2026",
+    targetPreset: "Target Preset",
+    scopeHint: "Changes only Sampler and Prompt Variables values. Preset blocks and regex scripts stay unchanged.",
+    saveCurrent: "Save from current values",
+    noProfiles: "No profiles saved for this Preset.",
+    apply: "Apply",
+    edit: "Edit",
+    delete: "Delete",
+    options: "Options",
+    autoApply: "Auto-apply the assigned profile when switching Connections",
+    autoPermission: "Connection switching and auto-apply require the `generation` permission. Allow it in Extensions settings.",
+    autoUnsupported: "Auto-apply is unavailable: this Lumiverse version does not report Connection changes.",
+    activeUnknown: "Auto-apply is unavailable: this Lumiverse version cannot identify the active Preset. Use the profile\u2019s Apply button.",
+    fileTooLarge: "File is too large (over 2MB).",
+    export: "Export (JSON)",
+    import: "Import",
+    refresh: "Refresh",
+    presetReadFailed: "Could not load the Preset.",
+    source_chat: "Chat",
+    source_persona: "Persona",
+    source_character: "Character",
+    source_connection: "Connection",
+    source_defaults: "Defaults",
+    editorSessionMissing: "Could not find the session with the editor.",
+    editorTimeout: "The editor did not respond in time.",
+    presetMissing: "Target Preset not found. It may have been deleted or belong to another account.",
+    conflict: "The Preset changed elsewhere, so the update could not be applied. Try again shortly.",
+    profileFieldsRequired: "A name and target Preset are required.",
+    profileMissing: "Profile not found.",
+    autoActiveUnknown: "Setting Profiles skipped auto-apply: this Lumiverse version cannot identify the active Preset. Use the profile\u2019s Apply button.",
+    undoRefused: "Undo cancelled: this Preset is open in the editor, but this Lumiverse version cannot apply changes through it. Select another Preset in Loom or reload the page, then try again.",
+    undoAction: "Undo",
+    noBackup: "No backup to undo.",
+    editorReplyFailed: "The editor could not accept the values.",
+    importEmpty: "No profiles imported.",
+    samplerDisabled: "Samplers are off for this Preset, so the applied values will not affect generation. Enable samplers in the Preset editor or include \u2018Use sampler values = On\u2019 in the profile.",
+    editorVariablesNote: "This Preset is open in the editor. Prompt Variables may display old values until you reload or select another Preset in Loom and return. The saved values have changed; editing other fields will not revert them. Saving the editor\u2019s Prompt Variables dialog before refreshing will restore the old variable values.",
+    fallbackStaleNote: "The editor still has old Sampler values. Reload before editing and saving samplers, or the editor will overwrite the entire Sampler group with its old values. Editing other groups, such as blocks, does not affect samplers.",
+    fallbackBlocks: "Applied directly to the server because the editor rejected this Preset\u2019s block format (a Preset data issue).",
+    invalidJson: "Could not read the JSON.",
+    invalidExport: "This file was not exported by this extension.",
+    importSkipped: "Skipped an entry without a name or target Preset.",
+    language: "\uC5B8\uC5B4 / Language",
+    languageAuto: "Auto",
+    languageKo: "\uD55C\uAD6D\uC5B4",
+    languageEn: "English",
+    unexpectedError: "Could not complete the operation. Try again shortly.",
+    invalidVariableJson: "Enter a valid JSON value.",
+    missingOptions: "Unknown options: {options}",
+    switchFailed: "Could not switch Connection: {error}",
+    samplerCount: "Sampler: {count}",
+    variableCount: "Prompt Variables: {count}",
+    connectionSummary: "Connection: {name}",
+    autoCount: "Auto: {count}",
+    searchVariables: "Search variables ({count})",
+    orphanVariables: "{count} variables missing from the Preset are preserved and skipped on apply.",
+    currentPreset: "{name} (current)",
+    undoLabel: "Undo ({name})",
+    profileCount: "Profiles: {count}",
+    deleteConfirm: "Delete profile \u2018{name}\u2019?",
+    otherProfiles: "{count} profiles belong to other Presets. Select their Preset above to view them.",
+    skippedVariables: " (Skipped {count} variables missing from the Preset)",
+    appliedResult: "{action} completed.{skip}",
+    noopResult: "{action}: values already match; no changes needed.",
+    autoRefused: "Skipped auto-apply for \u2018{name}\u2019: this Lumiverse editor cannot accept extension updates while the Preset is open. Select another Preset in Loom or reload the page, then apply manually.",
+    applyRefused: "Cancelled applying \u2018{name}\u2019: this Preset is open in the editor, but this Lumiverse version cannot apply through it. Old editor values could overwrite the update. Select another Preset in Loom or reload the page, then apply again.",
+    applyFailed: "Could not apply \u2018{name}\u2019: {error}",
+    autoApplyFailed: "Could not auto-apply \u2018{name}\u2019: {error}",
+    applyAction: "Apply \u2018{name}\u2019",
+    autoApplyAction: "Auto-apply \u2018{name}\u2019",
+    bindingWarning: `
+This chat has a Preset profile binding ({source}) that may override the Prompt Variables values.`,
+    profileSaved: "Saved profile \u2018{name}\u2019.",
+    undoFailed: "Could not undo: {error}",
+    undoSuccess: "Restored the previous values.{note}",
+    importCount: "Imported {count} profiles.",
+    fallbackReason: "Applied directly to the server because the editor update failed ({reason}).",
+    fallbackNote: `{lead} Reload to refresh the editor.
+{stale}{variables}`
+  }
+};
+function normalizeLanguage(value) {
+  return value === "ko" || value === "en" ? value : "auto";
+}
+function translate(language, key, params = {}) {
+  return messages[language][key].replace(/\{(\w+)\}/g, (match, name) => Object.hasOwn(params, name) ? String(params[name]) : match);
+}
+var translator = (language) => (key, params) => translate(language, key, params);
+
 // src/shared.ts
 var SAMPLER_KEYS = [
   "enabled",
@@ -14,13 +285,14 @@ var SAMPLER_KEYS = [
   "streaming"
 ];
 var BOOLEAN_SAMPLER_KEYS = ["enabled", "streaming"];
+var SAMPLER_LABEL_KEYS = Object.fromEntries(SAMPLER_KEYS.map((key) => [key, `sampler_${key}`]));
 var counter = 0;
 function newId(prefix) {
   counter = (counter + 1) % 1e6;
   return `${prefix}_${Date.now().toString(36)}${counter.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 }
 function emptyStore() {
-  return { version: 1, profiles: [], backups: {}, settings: { autoApply: false } };
+  return { version: 1, profiles: [], backups: {}, settings: { autoApply: false, language: "auto" } };
 }
 
 // src/core.ts
@@ -150,7 +422,7 @@ function normalizeStore(v) {
     }
   }
   const s = isObj(v.settings) ? v.settings : {};
-  return { version: 1, profiles, backups, settings: { autoApply: s.autoApply === true } };
+  return { version: 1, profiles, backups, settings: { autoApply: s.autoApply === true, language: normalizeLanguage(s.language) } };
 }
 function describePreset(p) {
   const so = isObj(p.parameters?.samplerOverrides) ? p.parameters.samplerOverrides : {};
@@ -283,13 +555,14 @@ function planUndo(p, backup) {
   }
   return plan;
 }
-function samplerDisabledWarning(preset, profile) {
+function samplerDisabledWarning(preset, profile, language = "ko") {
+  const t = translator(language);
   if (!Object.keys(profile.sampler).some((k) => k !== "enabled"))
     return null;
   const so = preset.parameters?.samplerOverrides;
   if (isObj(so) && so.enabled === true)
     return null;
-  return '\uC774 \uD504\uB9AC\uC14B\uC740 \uC0D8\uD50C\uB7EC \uC0AC\uC6A9\uC774 \uAEBC\uC838 \uC788\uC5B4, \uC801\uC6A9\uD55C \uC0D8\uD50C\uB7EC \uAC12\uC774 \uC0DD\uC131\uC5D0 \uBC18\uC601\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uC0D8\uD50C\uB7EC\uB97C \uCF1C\uAC70\uB098, \uD504\uB85C\uD544\uC5D0 "\uC0D8\uD50C\uB7EC \uAC12 \uC0AC\uC6A9 = \uCF2C"\uC744 \uB123\uC73C\uC138\uC694.';
+  return t("samplerDisabled");
 }
 function editorBlocks(editorPresetId, presetId) {
   return !!editorPresetId && editorPresetId === presetId;
@@ -365,13 +638,12 @@ async function undoBackup(host, store, presetId) {
     delete store.backups[presetId];
   return result;
 }
-var EDITOR_VAR_NOTE = "\uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uC5B4, \uD504\uB86C\uD504\uD2B8 \uBCC0\uC218 \uAC12\uC740 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE58\uAC70\uB098 Loom\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE8\uB790\uB2E4\uAC00 \uB3CC\uC544\uC62C \uB54C\uAE4C\uC9C0 \uD654\uBA74\uC5D0 \uC61B \uAC12\uC73C\uB85C \uBCF4\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4(\uC800\uC7A5\uB41C \uAC12\uC740 \uBC14\uB00C\uC5C8\uACE0 \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uB2E4\uB978 \uAC12\uC744 \uACE0\uCCD0\uB3C4 \uB418\uB3CC\uB824\uC9C0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4). \uADF8 \uC804\uC5D0 \uD3B8\uC9D1\uAE30\uC758 '\uBCC0\uC218 \uC124\uC815' \uCC3D\uC5D0\uC11C \uC800\uC7A5\uD558\uBA74, \uC801\uC6A9\uD55C \uBCC0\uC218 \uAC12\uC774 \uC61B \uAC12\uC73C\uB85C \uB418\uB3CC\uC544\uAC11\uB2C8\uB2E4.";
-var FALLBACK_STALE_NOTE = "\uC774 \uACBD\uC6B0 \uD3B8\uC9D1\uAE30\uC5D0\uB294 \uC61B \uC0D8\uD50C\uB7EC \uAC12\uC774 \uB0A8\uC544 \uC788\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C \uACE0\uCE58\uAE30 \uC804\uC5D0 \uD3B8\uC9D1\uAE30\uC5D0\uC11C \uC0D8\uD50C\uB7EC \uAC12\uC744 \uACE0\uCCD0 \uC800\uC7A5\uD558\uBA74, \uD3B8\uC9D1\uAE30\uAC00 \uC0D8\uD50C\uB7EC \uBB36\uC74C \uC804\uCCB4\uB97C \uC790\uAE30\uAC00 \uAC00\uC9C4 \uC61B \uAC12\uC73C\uB85C \uC368\uC11C \uBC29\uAE08 \uC801\uC6A9\uD55C \uC0D8\uD50C\uB7EC \uAC12\uC774 \uB418\uB3CC\uC544\uAC11\uB2C8\uB2E4(\uD3B8\uC9D1\uAE30\uB294 \uACE0\uCE5C \uD56D\uBAA9 \uBB36\uC74C\uB9CC \uC800\uC7A5\uD558\uBBC0\uB85C \uBE14\uB85D \uB4F1 \uB2E4\uB978 \uD56D\uBAA9\uB9CC \uACE0\uCE58\uBA74 \uC601\uD5A5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4).";
-function fallbackNote(f, varsChanged) {
-  const lead = f.detected || /^Invalid Loom/.test(f.reason) ? "\uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC758 \uBE14\uB85D \uD615\uC2DD\uC744 \uBC1B\uC9C0 \uC54A\uC544(\uD504\uB9AC\uC14B \uB370\uC774\uD130 \uBB38\uC81C) \uC11C\uBC84\uC5D0 \uC9C1\uC811 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4." : `\uD3B8\uC9D1\uAE30\uB97C \uD1B5\uD55C \uC801\uC6A9\uC774 \uB418\uC9C0 \uC54A\uC544(${f.reason.slice(0, 120)}) \uC11C\uBC84\uC5D0 \uC9C1\uC811 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4.`;
-  return `${lead} \uD3B8\uC9D1\uAE30 \uD654\uBA74\uC740 \uC0C8\uB85C \uACE0\uCE58\uBA74 \uB9DE\uCDB0\uC9D1\uB2C8\uB2E4.
-${FALLBACK_STALE_NOTE}${varsChanged ? `
-${EDITOR_VAR_NOTE}` : ""}`;
+var EDITOR_VAR_NOTE = translate("ko", "editorVariablesNote");
+function fallbackNote(f, varsChanged, language = "ko") {
+  const t = translator(language);
+  const lead = f.detected || /^Invalid Loom/.test(f.reason) ? t("fallbackBlocks") : t("fallbackReason", { reason: f.reason.slice(0, 120) });
+  return t("fallbackNote", { lead, stale: t("fallbackStaleNote"), variables: varsChanged ? `
+${t("editorVariablesNote")}` : "" });
 }
 async function applyProfileViaEditor(host, store, profile, conn, editor, skipReason) {
   let fallback = skipReason ? { reason: skipReason, detected: true } : undefined;
@@ -440,22 +712,23 @@ function exportProfiles(store, ids) {
   const profiles = store.profiles.filter((p) => !ids || ids.includes(p.id));
   return JSON.stringify({ format: EXPORT_FORMAT, version: 1, profiles }, null, 2);
 }
-function importProfiles(store, text, now = Date.now()) {
+function importProfiles(store, text, now = Date.now(), language = "ko") {
+  const t = translator(language);
   let raw;
   try {
     raw = JSON.parse(text);
   } catch {
-    return { added: 0, errors: ["JSON\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4."] };
+    return { added: 0, errors: [t("invalidJson")] };
   }
   if (!isObj(raw) || raw.format !== EXPORT_FORMAT || !Array.isArray(raw.profiles)) {
-    return { added: 0, errors: ["\uC774 \uD655\uC7A5\uC5D0\uC11C \uB0B4\uBCF4\uB0B8 \uD30C\uC77C\uC774 \uC544\uB2D9\uB2C8\uB2E4."] };
+    return { added: 0, errors: [t("invalidExport")] };
   }
   let added = 0;
   const errors = [];
   for (const item of raw.profiles.slice(0, 200)) {
     const p = normalizeProfile({ ...isObj(item) ? item : {}, id: undefined, createdAt: now, updatedAt: now }, now);
     if (!p) {
-      errors.push("\uC774\uB984\uC774\uB098 \uB300\uC0C1 \uD504\uB9AC\uC14B\uC774 \uC5C6\uB294 \uD56D\uBAA9\uC744 \uAC74\uB108\uB6F0\uC5C8\uC2B5\uB2C8\uB2E4.");
+      errors.push(t("importSkipped"));
       continue;
     }
     p.name = uniqueName(store, p.presetId, p.name);
@@ -476,12 +749,12 @@ function uniqueName(store, presetId, name, exceptId) {
 
 // src/backend.ts
 var STORE_PATH = "profiles.json";
-var SOURCE_LABEL = {
-  chat: "\uCC44\uD305",
-  persona: "\uD398\uB974\uC18C\uB098",
-  character: "\uCE90\uB9AD\uD130",
-  connection: "\uC5F0\uACB0",
-  defaults: "\uAE30\uBCF8\uAC12"
+var SOURCE_KEYS = {
+  chat: "source_chat",
+  persona: "source_persona",
+  character: "source_character",
+  connection: "source_connection",
+  defaults: "source_defaults"
 };
 function send(payload, userId, sessionId) {
   spindle.sendToFrontend(payload, userId, sessionId ? { frontendSessionId: sessionId } : undefined);
@@ -536,16 +809,17 @@ async function active(userId, chatId, hint) {
 }
 var lastChat = new Map;
 var editorWaits = new Map;
-function askEditor(userId, sessionId, presetId) {
+function askEditor(userId, sessionId, presetId, language) {
+  const t = translator(language);
   return (patch) => new Promise((resolve, reject) => {
     if (!sessionId) {
-      reject(new Error("\uD3B8\uC9D1\uAE30\uB97C \uAC00\uC9C4 \uD654\uBA74\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."));
+      reject(new Error(t("editorSessionMissing")));
       return;
     }
     const reqId = newId("ed");
     const timer = setTimeout(() => {
       editorWaits.delete(reqId);
-      reject(new Error("\uD3B8\uC9D1\uAE30\uAC00 \uC2DC\uAC04 \uC548\uC5D0 \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4."));
+      reject(new Error(t("editorTimeout")));
     }, 15000);
     editorWaits.set(reqId, { resolve, reject, timer });
     send({ type: "editor_patch", reqId, presetId, set: patch.set, remove: patch.remove }, userId, sessionId);
@@ -568,25 +842,27 @@ async function stateMsg(userId, chatIdIn, store, refreshList = false, hint) {
     activeAvailable: act.known
   };
 }
-function describeResult(r, what) {
+function describeResult(r, what, language) {
+  const t = translator(language);
   switch (r.status) {
     case "applied": {
-      const skip = r.skipped.length ? ` (\uD504\uB9AC\uC14B\uC5D0 \uC5C6\uB294 \uBCC0\uC218 ${r.skipped.length}\uAC1C\uB294 \uAC74\uB108\uB700)` : "";
-      return { level: r.skipped.length ? "warning" : "info", text: `${what}\uD588\uC2B5\uB2C8\uB2E4.${skip}` };
+      const skip = r.skipped.length ? t("skippedVariables", { count: r.skipped.length }) : "";
+      return { level: r.skipped.length ? "warning" : "info", text: t("appliedResult", { action: what, skip }) };
     }
     case "noop":
-      return { level: "info", text: `${what}: \uC774\uBBF8 \uAC19\uC740 \uAC12\uC774\uB77C \uBC14\uAFC0 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+      return { level: "info", text: t("noopResult", { action: what }) };
     case "missing":
-      return { level: "error", text: "\uB300\uC0C1 \uD504\uB9AC\uC14B\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0AD\uC81C\uB418\uC5C8\uAC70\uB098 \uB2E4\uB978 \uACC4\uC815\uC758 \uD504\uB9AC\uC14B\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4." };
+      return { level: "error", text: t("presetMissing") };
     case "conflict":
-      return { level: "error", text: "\uB2E4\uB978 \uACF3\uC5D0\uC11C \uD504\uB9AC\uC14B\uC774 \uBC14\uB00C\uC5B4 \uC801\uC6A9\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694." };
+      return { level: "error", text: t("conflict") };
   }
 }
-async function doApply(userId, sessionId, store, profile, chatId, activeConnectionId, switched, auto, ed = {}, activeHint) {
+async function doApply(userId, sessionId, store, profile, chatId, activeConnectionId, switched, auto, ed = {}, activeHint, language = "ko") {
+  const t = translator(language);
   const route = writeRoute(ed, profile.presetId, !!sessionId);
   const editorOpen = route === "editor";
   if (route === "refuse") {
-    const text = auto ? `'${profile.name}' \uC790\uB3D9 \uC801\uC6A9\uC744 \uAC74\uB108\uB6F0\uC5C8\uC2B5\uB2C8\uB2E4: \uC774 Lumiverse\uC758 \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uB294 \uD655\uC7A5\uC774 \uAC12\uC744 \uB123\uC744 \uC218 \uC5C6\uC5B4, \uC5F4\uC5B4 \uB454 \uD504\uB9AC\uC14B\uC5D0\uB294 \uC801\uC6A9\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uC9C1\uC811 \uC801\uC6A9\uD558\uC138\uC694.` : `'${profile.name}' \uC801\uC6A9\uC744 \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uB294\uB370 \uC774 Lumiverse\uB294 \uD3B8\uC9D1\uAE30\uB97C \uD1B5\uD55C \uC801\uC6A9\uC744 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC544, \uC801\uC6A9\uAC12\uC774 \uD3B8\uC9D1\uAE30\uC758 \uC61B \uAC12\uC5D0 \uB36E\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC801\uC6A9\uD558\uC138\uC694.`;
+    const text = auto ? t("autoRefused", { name: profile.name }) : t("applyRefused", { name: profile.name });
     if (auto)
       spindle.toast.warning(text, { userId });
     send({ type: "result", level: "warning", text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
@@ -595,20 +871,20 @@ async function doApply(userId, sessionId, store, profile, chatId, activeConnecti
   const target = switched ? profile.connectionId : null;
   let r;
   try {
-    r = editorOpen ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId), ed.editorBlocksReject) : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
+    r = editorOpen ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId, language), ed.editorBlocksReject) : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
   } catch (e) {
-    const text = `'${profile.name}' ${auto ? "\uC790\uB3D9 " : ""}\uC801\uC6A9\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4: ${e instanceof Error ? e.message : String(e)}`;
+    const text = t(auto ? "autoApplyFailed" : "applyFailed", { name: profile.name, error: t("unexpectedError") });
     if (auto)
       spindle.toast.error(text.slice(0, 500), { userId });
     send({ type: "result", level: "error", text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
     return;
   }
   await saveStore(userId, store);
-  const d = describeResult(r, auto ? `'${profile.name}' \uC790\uB3D9 \uC801\uC6A9` : `'${profile.name}' \uC801\uC6A9`);
+  const d = describeResult(r, t(auto ? "autoApplyAction" : "applyAction", { name: profile.name }), language);
   let text = d.text;
   let level = d.level;
   if (r.status === "applied" || r.status === "noop") {
-    const w = samplerDisabledWarning(r.preset, profile);
+    const w = samplerDisabledWarning(r.preset, profile, language);
     if (w) {
       text += `
 ${w}`;
@@ -618,17 +894,16 @@ ${w}`;
   if (r.fallback) {
     if (r.status === "applied") {
       text += `
-${fallbackNote(r.fallback, Object.keys(profile.variables).length > 0)}`;
+${fallbackNote(r.fallback, Object.keys(profile.variables).length > 0, language)}`;
       level = "warning";
     }
   } else if (editorOpen && r.status === "applied" && Object.keys(profile.variables).length)
     text += `
-${EDITOR_VAR_NOTE}`;
+${t("editorVariablesNote")}`;
   if ((r.status === "applied" || r.status === "noop") && Object.keys(profile.variables).length) {
     const act = await active(userId, chatId, activeHint);
     if (act.source && act.source !== "none") {
-      text += `
-\uC774 \uCC44\uD305\uC5D0\uB294 \uD504\uB9AC\uC14B \uD504\uB85C\uD544 \uBC14\uC778\uB529(${SOURCE_LABEL[act.source] ?? act.source})\uC774 \uC788\uC5B4, \uD504\uB86C\uD504\uD2B8 \uBCC0\uC218 \uAC12\uC774 \uADF8 \uBC14\uC778\uB529 \uAC12\uC5D0 \uAC00\uB824\uC9C8 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`;
+      text += t("bindingWarning", { source: SOURCE_KEYS[act.source] ? t(SOURCE_KEYS[act.source]) : act.source });
       level = "warning";
     }
   }
@@ -638,6 +913,8 @@ ${EDITOR_VAR_NOTE}`;
   send(await stateMsg(userId, chatId, store, false, activeHint), userId, sessionId);
 }
 async function handle(msg, userId, sessionId) {
+  const language = msg.language === "en" ? "en" : "ko";
+  const t = translator(language);
   switch (msg.type) {
     case "load":
       send(await stateMsg(userId, msg.chatId, undefined, true, msg.activePresetId), userId, sessionId);
@@ -652,7 +929,7 @@ async function handle(msg, userId, sessionId) {
         const store = await loadStore(userId);
         const incoming = normalizeProfile({ ...msg.profile, presetName: msg.profile.presetName ?? "" });
         if (!incoming) {
-          send({ type: "result", level: "error", text: "\uC774\uB984\uACFC \uB300\uC0C1 \uD504\uB9AC\uC14B\uC774 \uD544\uC694\uD569\uB2C8\uB2E4." }, userId, sessionId);
+          send({ type: "result", level: "error", text: t("profileFieldsRequired") }, userId, sessionId);
           return;
         }
         const existing = msg.profile.id ? store.profiles.find((p) => p.id === msg.profile.id) : undefined;
@@ -667,7 +944,7 @@ async function handle(msg, userId, sessionId) {
           store.profiles.push(incoming);
         }
         await saveStore(userId, store);
-        send({ type: "result", level: "info", text: `'${incoming.name}' \uD504\uB85C\uD544\uC744 \uC800\uC7A5\uD588\uC2B5\uB2C8\uB2E4.` }, userId, sessionId);
+        send({ type: "result", level: "info", text: t("profileSaved", { name: incoming.name }) }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
       return;
@@ -685,10 +962,10 @@ async function handle(msg, userId, sessionId) {
         const store = await loadStore(userId);
         const profile = store.profiles.find((p) => p.id === msg.id);
         if (!profile) {
-          send({ type: "result", level: "error", text: "\uD504\uB85C\uD544\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4." }, userId, sessionId);
+          send({ type: "result", level: "error", text: t("profileMissing") }, userId, sessionId);
           return;
         }
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false, msg);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false, msg, undefined, language);
       });
       return;
     case "connection_changed":
@@ -699,7 +976,7 @@ async function handle(msg, userId, sessionId) {
         const act = await active(userId, msg.chatId, msg.activePresetId);
         if (!act.known) {
           if (store.profiles.some((p) => p.autoConnectionIds.includes(msg.connectionId))) {
-            spindle.toast.warning('\uC124\uC815 \uD504\uB85C\uD544 \uC790\uB3D9 \uC801\uC6A9\uC744 \uAC74\uB108\uB6F0\uC5C8\uC2B5\uB2C8\uB2E4: \uC774 Lumiverse\uC5D0\uC11C\uB294 \uD604\uC7AC \uD504\uB9AC\uC14B\uC744 \uC54C \uC218 \uC5C6\uC5B4 \uC790\uB3D9 \uC801\uC6A9\uC744 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD504\uB85C\uD544\uC758 "\uC801\uC6A9" \uBC84\uD2BC\uC744 \uC4F0\uC138\uC694.', { userId });
+            spindle.toast.warning(t("autoActiveUnknown"), { userId });
           }
           return;
         }
@@ -708,7 +985,7 @@ async function handle(msg, userId, sessionId) {
         const profile = store.profiles.find((p) => p.presetId === act.id && p.autoConnectionIds.includes(msg.connectionId));
         if (!profile)
           return;
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true, msg, msg.activePresetId);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true, msg, msg.activePresetId, language);
       });
       return;
     case "undo":
@@ -718,22 +995,22 @@ async function handle(msg, userId, sessionId) {
         const route = writeRoute(msg, msg.presetId, !!sessionId);
         const editorOpen = route === "editor";
         if (route === "refuse") {
-          send({ type: "result", level: "warning", text: "\uB418\uB3CC\uB9AC\uAE30\uB97C \uCDE8\uC18C\uD588\uC2B5\uB2C8\uB2E4: \uD504\uB9AC\uC14B \uD3B8\uC9D1\uAE30\uAC00 \uC774 \uD504\uB9AC\uC14B\uC744 \uC5F4\uC5B4 \uB450\uACE0 \uC788\uB294\uB370 \uC774 Lumiverse\uB294 \uD3B8\uC9D1\uAE30\uB97C \uD1B5\uD55C \uC801\uC6A9\uC744 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. Loom \uD0ED\uC5D0\uC11C \uB2E4\uB978 \uD504\uB9AC\uC14B\uC744 \uACE0\uB974\uAC70\uB098 \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.", presetId: msg.presetId }, userId, sessionId);
+          send({ type: "result", level: "warning", text: t("undoRefused"), presetId: msg.presetId }, userId, sessionId);
           return;
         }
         let r;
         try {
-          r = editorOpen ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId), msg.editorBlocksReject) : await undoBackup(hostFor(userId), store, msg.presetId);
+          r = editorOpen ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId, language), msg.editorBlocksReject) : await undoBackup(hostFor(userId), store, msg.presetId);
         } catch (e) {
-          send({ type: "result", level: "error", text: `\uB418\uB3CC\uB9AC\uAE30\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4: ${e instanceof Error ? e.message : String(e)}`, presetId: msg.presetId }, userId, sessionId);
+          send({ type: "result", level: "error", text: t("undoFailed", { error: t("unexpectedError") }), presetId: msg.presetId }, userId, sessionId);
           return;
         }
         await saveStore(userId, store);
-        const d = describeResult(r, "\uB418\uB3CC\uB9BC");
+        const d = describeResult(r, t("undoAction"), language);
         const hasVars = !!backup && Object.keys(backup.variables).length > 0;
-        const text = r.status === "applied" ? `\uC9C1\uC804 \uAC12\uC73C\uB85C \uB418\uB3CC\uB838\uC2B5\uB2C8\uB2E4.${r.fallback ? `
-${fallbackNote(r.fallback, hasVars)}` : editorOpen && hasVars ? `
-${EDITOR_VAR_NOTE}` : ""}` : r.status === "missing" && !backup ? "\uB418\uB3CC\uB9B4 \uBC31\uC5C5\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." : d.text;
+        const text = r.status === "applied" ? t("undoSuccess", { note: r.fallback ? `
+${fallbackNote(r.fallback, hasVars, language)}` : editorOpen && hasVars ? `
+${t("editorVariablesNote")}` : "" }) : r.status === "missing" && !backup ? t("noBackup") : d.text;
         const ok = r.status === "applied" || r.status === "noop";
         send({ type: "result", level: r.fallback && r.status === "applied" ? "warning" : d.level, text, presetId: msg.presetId, switchConnection: ok && backup?.connectionSwitchedTo ? backup.connectionBefore : undefined }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
@@ -748,7 +1025,7 @@ ${EDITOR_VAR_NOTE}` : ""}` : r.status === "missing" && !backup ? "\uB418\uB3CC\u
       if (msg.ok)
         w.resolve({ changed: msg.changed === true, prev: msg.prev ?? {} });
       else
-        w.reject(new Error(msg.error || "\uD3B8\uC9D1\uAE30\uAC00 \uAC12\uC744 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4."));
+        w.reject(new Error(msg.error || t("editorReplyFailed")));
       return;
     }
     case "export": {
@@ -759,10 +1036,10 @@ ${EDITOR_VAR_NOTE}` : ""}` : r.status === "missing" && !backup ? "\uB418\uB3CC\u
     case "import":
       await serial(userId, async () => {
         const store = await loadStore(userId);
-        const r = importProfiles(store, msg.text);
+        const r = importProfiles(store, msg.text, Date.now(), language);
         if (r.added)
           await saveStore(userId, store);
-        const text = r.added ? `${r.added}\uAC1C\uB97C \uAC00\uC838\uC654\uC2B5\uB2C8\uB2E4.` : "\uAC00\uC838\uC628 \uD504\uB85C\uD544\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.";
+        const text = r.added ? t("importCount", { count: r.added }) : t("importEmpty");
         send({ type: "result", level: r.errors.length ? "warning" : "info", text: [text, ...r.errors].join(`
 `) }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
@@ -773,6 +1050,8 @@ ${EDITOR_VAR_NOTE}` : ""}` : r.status === "missing" && !backup ? "\uB418\uB3CC\u
         const store = await loadStore(userId);
         if (typeof msg.settings.autoApply === "boolean")
           store.settings.autoApply = msg.settings.autoApply;
+        if (msg.settings.language === "auto" || msg.settings.language === "ko" || msg.settings.language === "en")
+          store.settings.language = msg.settings.language;
         await saveStore(userId, store);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
@@ -789,6 +1068,9 @@ spindle.onFrontendMessage((payload, userId, frontendSessionId) => {
     return;
   handle(payload, userId, frontendSessionId).catch((e) => {
     spindle.log.error(`[setting-profiles] ${payload.type}: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
-    spindle.toast.error(e instanceof Error ? e.message : String(e), { userId });
+    const t = translator(payload.language === "en" ? "en" : "ko");
+    const text = t("unexpectedError");
+    spindle.toast.error(text, { userId });
+    send({ type: "result", level: "error", text, refresh: false }, userId, frontendSessionId);
   });
 });

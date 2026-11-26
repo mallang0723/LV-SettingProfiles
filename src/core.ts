@@ -1,6 +1,7 @@
 // Host-independent logic: partial apply with revision retry, undo, validation, export/import.
 // The preset block list, prompts, name and regexes are never part of an update payload.
 
+import { normalizeLanguage, translator, translate, type Language } from './i18n';
 import {
   type Backup, type Json, type PresetDetail, type SamplerPatch, type Prev, type Profile, type Store, type VariableInfo, type VariableValues,
   BOOLEAN_SAMPLER_KEYS, SAMPLER_KEYS, emptyStore, newId,
@@ -143,7 +144,7 @@ export function normalizeStore(v: unknown): Store {
     }
   }
   const s = isObj(v.settings) ? v.settings : {};
-  return { version: 1, profiles, backups, settings: { autoApply: s.autoApply === true } };
+  return { version: 1, profiles, backups, settings: { autoApply: s.autoApply === true, language: normalizeLanguage(s.language) } };
 }
 
 // ---- preset reading ----
@@ -295,11 +296,12 @@ export function planUndo(p: PresetLike, backup: Backup): Plan {
  * When the profile carries sampler values but the preset's sampler switch is off, the host never sends
  * them with a generation request. Returns a warning text in that case, otherwise null.
  */
-export function samplerDisabledWarning(preset: Pick<PresetLike, 'parameters'>, profile: Pick<Profile, 'sampler'>): string | null {
+export function samplerDisabledWarning(preset: Pick<PresetLike, 'parameters'>, profile: Pick<Profile, 'sampler'>, language: Language = 'ko'): string | null {
+  const t = translator(language);
   if (!Object.keys(profile.sampler).some((k) => k !== 'enabled')) return null;
   const so = preset.parameters?.samplerOverrides;
   if (isObj(so) && so.enabled === true) return null;
-  return '이 프리셋은 샘플러 사용이 꺼져 있어, 적용한 샘플러 값이 생성에 반영되지 않습니다. 프리셋 편집기에서 샘플러를 켜거나, 프로필에 "샘플러 값 사용 = 켬"을 넣으세요.';
+  return t('samplerDisabled');
 }
 
 /** An open editor holds its own draft and would silently write old values back over an apply or undo. */
@@ -425,16 +427,15 @@ export type EditorSampler = (patch: SamplerPatch) => Promise<{ changed: boolean;
 export interface EditorFallback { reason: string; detected: boolean }
 export type EditorCommitResult = CommitResult & { fallback?: EditorFallback };
 
-export const EDITOR_VAR_NOTE = '편집기가 이 프리셋을 열어 두고 있어, 프롬프트 변수 값은 페이지를 새로 고치거나 Loom에서 다른 프리셋을 골랐다가 돌아올 때까지 화면에 옛 값으로 보일 수 있습니다(저장된 값은 바뀌었고 편집기에서 다른 값을 고쳐도 되돌려지지 않습니다). 그 전에 편집기의 \'변수 설정\' 창에서 저장하면, 적용한 변수 값이 옛 값으로 되돌아갑니다.';
-
-const FALLBACK_STALE_NOTE = '이 경우 편집기에는 옛 샘플러 값이 남아 있습니다. 새로 고치기 전에 편집기에서 샘플러 값을 고쳐 저장하면, 편집기가 샘플러 묶음 전체를 자기가 가진 옛 값으로 써서 방금 적용한 샘플러 값이 되돌아갑니다(편집기는 고친 항목 묶음만 저장하므로 블록 등 다른 항목만 고치면 영향이 없습니다).';
+export const EDITOR_VAR_NOTE = translate('ko', 'editorVariablesNote');
 
 /** Text for a write that went straight to the server because the editor path was not usable. */
-export function fallbackNote(f: EditorFallback, varsChanged: boolean): string {
+export function fallbackNote(f: EditorFallback, varsChanged: boolean, language: Language = 'ko'): string {
+  const t = translator(language);
   const lead = f.detected || /^Invalid Loom/.test(f.reason)
-    ? '편집기가 이 프리셋의 블록 형식을 받지 않아(프리셋 데이터 문제) 서버에 직접 적용했습니다.'
-    : `편집기를 통한 적용이 되지 않아(${f.reason.slice(0, 120)}) 서버에 직접 적용했습니다.`;
-  return `${lead} 편집기 화면은 새로 고치면 맞춰집니다.\n${FALLBACK_STALE_NOTE}${varsChanged ? `\n${EDITOR_VAR_NOTE}` : ''}`;
+    ? t('fallbackBlocks')
+    : t('fallbackReason', { reason: f.reason.slice(0, 120) });
+  return t('fallbackNote', { lead, stale: t('fallbackStaleNote'), variables: varsChanged ? `\n${t('editorVariablesNote')}` : '' });
 }
 
 const LOOM_REQUIRED_BLOCK_KEYS = ['id', 'name', 'content', 'role', 'enabled', 'position', 'depth', 'marker', 'isLocked', 'color', 'injectionTrigger', 'group'];
@@ -541,22 +542,23 @@ export function exportProfiles(store: Store, ids?: string[]): string {
   return JSON.stringify({ format: EXPORT_FORMAT, version: 1, profiles }, null, 2);
 }
 
-export function importProfiles(store: Store, text: string, now = Date.now()): { added: number; errors: string[] } {
+export function importProfiles(store: Store, text: string, now = Date.now(), language: Language = 'ko'): { added: number; errors: string[] } {
+  const t = translator(language);
   let raw: unknown;
   try {
     raw = JSON.parse(text);
   } catch {
-    return { added: 0, errors: ['JSON을 읽지 못했습니다.'] };
+    return { added: 0, errors: [t('invalidJson')] };
   }
   if (!isObj(raw) || raw.format !== EXPORT_FORMAT || !Array.isArray(raw.profiles)) {
-    return { added: 0, errors: ['이 확장에서 내보낸 파일이 아닙니다.'] };
+    return { added: 0, errors: [t('invalidExport')] };
   }
   let added = 0;
   const errors: string[] = [];
   for (const item of raw.profiles.slice(0, 200)) {
     const p = normalizeProfile({ ...(isObj(item) ? item : {}), id: undefined, createdAt: now, updatedAt: now }, now);
     if (!p) {
-      errors.push('이름이나 대상 프리셋이 없는 항목을 건너뛰었습니다.');
+      errors.push(t('importSkipped'));
       continue;
     }
     p.name = uniqueName(store, p.presetId, p.name);

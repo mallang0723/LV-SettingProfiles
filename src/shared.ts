@@ -1,5 +1,6 @@
 // Types and small helpers shared by the backend worker and the browser frontend.
 
+import type { Language, LanguageSetting, MessageKey } from './i18n';
 export type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
 
 export const SAMPLER_KEYS = [
@@ -9,19 +10,9 @@ export const SAMPLER_KEYS = [
 export type SamplerKey = (typeof SAMPLER_KEYS)[number];
 export const BOOLEAN_SAMPLER_KEYS: readonly string[] = ['enabled', 'streaming'];
 
-export const SAMPLER_LABELS: Record<SamplerKey, string> = {
-  enabled: '샘플러 값 사용',
-  maxTokens: '최대 토큰 (maxTokens)',
-  contextSize: '컨텍스트 크기',
-  temperature: '온도 (temperature)',
-  topP: 'Top P',
-  minP: 'Min P',
-  topK: 'Top K',
-  frequencyPenalty: 'Frequency 페널티',
-  presencePenalty: 'Presence 페널티',
-  repetitionPenalty: 'Repetition 페널티',
-  streaming: '스트리밍',
-};
+export const SAMPLER_LABEL_KEYS = Object.fromEntries(
+  SAMPLER_KEYS.map((key) => [key, `sampler_${key}`]),
+) as Record<SamplerKey, MessageKey>;
 
 /** variables[blockId][name] = value. */
 export type VariableValues = Record<string, Record<string, Json>>;
@@ -60,6 +51,7 @@ export interface Backup {
 }
 
 export interface Settings {
+  language: LanguageSetting;
   autoApply: boolean;
 }
 
@@ -119,7 +111,7 @@ export interface SamplerPatch {
   remove: string[];
 }
 
-export type ToBackend =
+export type ToBackend = { language?: Language } & (
   | { type: 'load'; chatId: string | null; activePresetId?: string | null }
   | { type: 'detail'; presetId: string }
   | { type: 'save_profile'; profile: Partial<Profile> & { name: string; presetId: string } }
@@ -131,12 +123,12 @@ export type ToBackend =
   | { type: 'export'; ids?: string[] }
   | { type: 'import'; text: string }
   | { type: 'set_settings'; settings: Partial<Settings> }
-  | { type: 'notify'; kind: 'info' | 'warning' | 'error'; text: string };
+  | { type: 'notify'; kind: 'info' | 'warning' | 'error'; text: string });
 
 export type ToFrontend =
   | StateMsg
   | { type: 'detail'; detail: PresetDetail | null; presetId: string }
-  | { type: 'result'; level: 'info' | 'warning' | 'error'; text: string; switchConnection?: string | null; presetId?: string }
+  | { type: 'result'; level: 'info' | 'warning' | 'error'; text: string; refresh?: boolean; switchConnection?: string | null; presetId?: string }
   | { type: 'export'; text: string; filename: string }
   | ({ type: 'editor_patch'; reqId: string; presetId: string } & SamplerPatch);
 
@@ -148,5 +140,5 @@ export function newId(prefix: string): string {
 }
 
 export function emptyStore(): Store {
-  return { version: 1, profiles: [], backups: {}, settings: { autoApply: false } };
+  return { version: 1, profiles: [], backups: {}, settings: { autoApply: false, language: 'auto' } };
 }

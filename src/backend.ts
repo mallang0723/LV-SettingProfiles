@@ -1,9 +1,10 @@
 // Backend worker: stores profiles per user and applies them to presets through the presets permission.
 
+import { translator, type Language, type MessageKey } from './i18n';
 declare const spindle: import('lumiverse-spindle-types').SpindleAPI;
 
 import {
-  applyProfile, applyProfileViaEditor, fallbackNote, EDITOR_VAR_NOTE, describePreset, resolveActive, writeRoute, samplerDisabledWarning, exportProfiles, importProfiles, normalizeProfile, normalizeStore,
+  applyProfile, applyProfileViaEditor, fallbackNote, describePreset, resolveActive, writeRoute, samplerDisabledWarning, exportProfiles, importProfiles, normalizeProfile, normalizeStore,
   uniqueName, undoBackup, undoBackupViaEditor,
   type CommitResult, type EditorCommitResult, type EditorSampler, type PresetHost, type PresetLike,
 } from './core';
@@ -11,8 +12,8 @@ import { type EditorInfo, type Profile, type Store, type StateMsg, type ToBacken
 
 const STORE_PATH = 'profiles.json';
 
-const SOURCE_LABEL: Record<string, string> = {
-  chat: '채팅', persona: '페르소나', character: '캐릭터', connection: '연결', defaults: '기본값',
+const SOURCE_KEYS: Record<string, MessageKey> = {
+  chat: 'source_chat', persona: 'source_persona', character: 'source_character', connection: 'source_connection', defaults: 'source_defaults',
 };
 
 function send(payload: ToFrontend, userId: string, sessionId?: string): void {
@@ -80,11 +81,12 @@ const lastChat = new Map<string, string>();
 // Requests to the frontend to change the open editor's draft; answered by an `editor_reply` message.
 const editorWaits = new Map<string, { resolve: (v: { changed: boolean; prev: Record<string, import('./shared').Prev> }) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
-function askEditor(userId: string, sessionId: string | undefined, presetId: string): EditorSampler {
+function askEditor(userId: string, sessionId: string | undefined, presetId: string, language: Language): EditorSampler {
+  const t = translator(language);
   return (patch) => new Promise((resolve, reject) => {
-    if (!sessionId) { reject(new Error('편집기를 가진 화면을 찾을 수 없습니다.')); return; }
+    if (!sessionId) { reject(new Error(t('editorSessionMissing'))); return; }
     const reqId = newId('ed');
-    const timer = setTimeout(() => { editorWaits.delete(reqId); reject(new Error('편집기가 시간 안에 응답하지 않았습니다.')); }, 15000);
+    const timer = setTimeout(() => { editorWaits.delete(reqId); reject(new Error(t('editorTimeout'))); }, 15000);
     editorWaits.set(reqId, { resolve, reject, timer });
     send({ type: 'editor_patch', reqId, presetId, set: patch.set, remove: patch.remove }, userId, sessionId);
   });
@@ -102,31 +104,33 @@ async function stateMsg(userId: string, chatIdIn: string | null, store?: Store, 
   };
 }
 
-function describeResult(r: CommitResult, what: string): { level: 'info' | 'warning' | 'error'; text: string } {
+function describeResult(r: CommitResult, what: string, language: Language): { level: 'info' | 'warning' | 'error'; text: string } {
+  const t = translator(language);
   switch (r.status) {
     case 'applied': {
-      const skip = r.skipped.length ? ` (프리셋에 없는 변수 ${r.skipped.length}개는 건너뜀)` : '';
-      return { level: r.skipped.length ? 'warning' : 'info', text: `${what}했습니다.${skip}` };
+      const skip = r.skipped.length ? t('skippedVariables', { count: r.skipped.length }) : '';
+      return { level: r.skipped.length ? 'warning' : 'info', text: t('appliedResult', { action: what, skip }) };
     }
     case 'noop':
-      return { level: 'info', text: `${what}: 이미 같은 값이라 바꿀 것이 없습니다.` };
+      return { level: 'info', text: t('noopResult', { action: what }) };
     case 'missing':
-      return { level: 'error', text: '대상 프리셋을 찾을 수 없습니다. 삭제되었거나 다른 계정의 프리셋일 수 있습니다.' };
+      return { level: 'error', text: t('presetMissing') };
     case 'conflict':
-      return { level: 'error', text: '다른 곳에서 프리셋이 바뀌어 적용하지 못했습니다. 잠시 뒤 다시 시도하세요.' };
+      return { level: 'error', text: t('conflict') };
   }
 }
 
 async function doApply(
   userId: string, sessionId: string | undefined, store: Store, profile: Profile,
-  chatId: string | null, activeConnectionId: string | null, switched: boolean, auto: boolean, ed: EditorInfo = {}, activeHint?: string | null,
+  chatId: string | null, activeConnectionId: string | null, switched: boolean, auto: boolean, ed: EditorInfo = {}, activeHint?: string | null, language: Language = 'ko',
 ): Promise<void> {
+  const t = translator(language);
   const route = writeRoute(ed, profile.presetId, !!sessionId);
   const editorOpen = route === 'editor';
   if (route === 'refuse') {
     const text = auto
-      ? `'${profile.name}' 자동 적용을 건너뛰었습니다: 이 Lumiverse의 프리셋 편집기는 확장이 값을 넣을 수 없어, 열어 둔 프리셋에는 적용할 수 없습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 직접 적용하세요.`
-      : `'${profile.name}' 적용을 취소했습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있는데 이 Lumiverse는 편집기를 통한 적용을 지원하지 않아, 적용값이 편집기의 옛 값에 덮일 수 있습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 다시 적용하세요.`;
+      ? t('autoRefused', { name: profile.name })
+      : t('applyRefused', { name: profile.name });
     if (auto) spindle.toast.warning(text, { userId });
     send({ type: 'result', level: 'warning', text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
     return;
@@ -135,32 +139,32 @@ async function doApply(
   let r: EditorCommitResult;
   try {
     r = editorOpen
-      ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId), ed.editorBlocksReject)
+      ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId, language), ed.editorBlocksReject)
       : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
   } catch (e) {
-    const text = `'${profile.name}' ${auto ? '자동 ' : ''}적용에 실패했습니다: ${e instanceof Error ? e.message : String(e)}`;
+    const text = t(auto ? 'autoApplyFailed' : 'applyFailed', { name: profile.name, error: t('unexpectedError') });
     if (auto) spindle.toast.error(text.slice(0, 500), { userId });
     send({ type: 'result', level: 'error', text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
     return;
   }
   await saveStore(userId, store);
-  const d = describeResult(r, auto ? `'${profile.name}' 자동 적용` : `'${profile.name}' 적용`);
+  const d = describeResult(r, t(auto ? 'autoApplyAction' : 'applyAction', { name: profile.name }), language);
   let text = d.text;
   let level = d.level;
   if (r.status === 'applied' || r.status === 'noop') {
-    const w = samplerDisabledWarning(r.preset, profile);
+    const w = samplerDisabledWarning(r.preset, profile, language);
     if (w) {
       text += `\n${w}`;
       level = 'warning';
     }
   }
   if (r.fallback) {
-    if (r.status === 'applied') { text += `\n${fallbackNote(r.fallback, Object.keys(profile.variables).length > 0)}`; level = 'warning'; }
-  } else if (editorOpen && r.status === 'applied' && Object.keys(profile.variables).length) text += `\n${EDITOR_VAR_NOTE}`;
+    if (r.status === 'applied') { text += `\n${fallbackNote(r.fallback, Object.keys(profile.variables).length > 0, language)}`; level = 'warning'; }
+  } else if (editorOpen && r.status === 'applied' && Object.keys(profile.variables).length) text += `\n${t('editorVariablesNote')}`;
   if ((r.status === 'applied' || r.status === 'noop') && Object.keys(profile.variables).length) {
     const act = await active(userId, chatId, activeHint);
     if (act.source && act.source !== 'none') {
-      text += `\n이 채팅에는 프리셋 프로필 바인딩(${SOURCE_LABEL[act.source] ?? act.source})이 있어, 프롬프트 변수 값이 그 바인딩 값에 가려질 수 있습니다.`;
+      text += t('bindingWarning', { source: SOURCE_KEYS[act.source] ? t(SOURCE_KEYS[act.source]!) : act.source });
       level = 'warning';
     }
   }
@@ -170,6 +174,8 @@ async function doApply(
 }
 
 async function handle(msg: ToBackend, userId: string, sessionId: string | undefined): Promise<void> {
+  const language = msg.language === 'en' ? 'en' : 'ko';
+  const t = translator(language);
   switch (msg.type) {
     case 'load':
       send(await stateMsg(userId, msg.chatId, undefined, true, msg.activePresetId), userId, sessionId);
@@ -186,7 +192,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
         const store = await loadStore(userId);
         const incoming = normalizeProfile({ ...msg.profile, presetName: msg.profile.presetName ?? '' });
         if (!incoming) {
-          send({ type: 'result', level: 'error', text: '이름과 대상 프리셋이 필요합니다.' }, userId, sessionId);
+          send({ type: 'result', level: 'error', text: t('profileFieldsRequired') }, userId, sessionId);
           return;
         }
         const existing = msg.profile.id ? store.profiles.find((p) => p.id === msg.profile.id) : undefined;
@@ -201,7 +207,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
           store.profiles.push(incoming);
         }
         await saveStore(userId, store);
-        send({ type: 'result', level: 'info', text: `'${incoming.name}' 프로필을 저장했습니다.` }, userId, sessionId);
+        send({ type: 'result', level: 'info', text: t('profileSaved', { name: incoming.name }) }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
       return;
@@ -221,10 +227,10 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
         const store = await loadStore(userId);
         const profile = store.profiles.find((p) => p.id === msg.id);
         if (!profile) {
-          send({ type: 'result', level: 'error', text: '프로필을 찾을 수 없습니다.' }, userId, sessionId);
+          send({ type: 'result', level: 'error', text: t('profileMissing') }, userId, sessionId);
           return;
         }
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false, msg);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.activeConnectionId, msg.switched, false, msg, undefined, language);
       });
       return;
 
@@ -235,14 +241,14 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
         const act = await active(userId, msg.chatId, msg.activePresetId);
         if (!act.known) {
           if (store.profiles.some((p) => p.autoConnectionIds.includes(msg.connectionId!))) {
-            spindle.toast.warning('설정 프로필 자동 적용을 건너뛰었습니다: 이 Lumiverse에서는 현재 프리셋을 알 수 없어 자동 적용을 쓸 수 없습니다. 프로필의 "적용" 버튼을 쓰세요.', { userId });
+            spindle.toast.warning(t('autoActiveUnknown'), { userId });
           }
           return;
         }
         if (!act.id) return;
         const profile = store.profiles.find((p) => p.presetId === act.id && p.autoConnectionIds.includes(msg.connectionId!));
         if (!profile) return;
-        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true, msg, msg.activePresetId);
+        await doApply(userId, sessionId, store, profile, msg.chatId, msg.connectionId, false, true, msg, msg.activePresetId, language);
       });
       return;
 
@@ -253,22 +259,22 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
         const route = writeRoute(msg, msg.presetId, !!sessionId);
         const editorOpen = route === 'editor';
         if (route === 'refuse') {
-          send({ type: 'result', level: 'warning', text: '되돌리기를 취소했습니다: 프리셋 편집기가 이 프리셋을 열어 두고 있는데 이 Lumiverse는 편집기를 통한 적용을 지원하지 않습니다. Loom 탭에서 다른 프리셋을 고르거나 페이지를 새로 고친 뒤 다시 시도하세요.', presetId: msg.presetId }, userId, sessionId);
+          send({ type: 'result', level: 'warning', text: t('undoRefused'), presetId: msg.presetId }, userId, sessionId);
           return;
         }
         let r: EditorCommitResult;
         try {
           r = editorOpen
-            ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId), msg.editorBlocksReject)
+            ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId, language), msg.editorBlocksReject)
             : await undoBackup(hostFor(userId), store, msg.presetId);
         } catch (e) {
-          send({ type: 'result', level: 'error', text: `되돌리기에 실패했습니다: ${e instanceof Error ? e.message : String(e)}`, presetId: msg.presetId }, userId, sessionId);
+          send({ type: 'result', level: 'error', text: t('undoFailed', { error: t('unexpectedError') }), presetId: msg.presetId }, userId, sessionId);
           return;
         }
         await saveStore(userId, store);
-        const d = describeResult(r, '되돌림');
+        const d = describeResult(r, t('undoAction'), language);
         const hasVars = !!backup && Object.keys(backup.variables).length > 0;
-        const text = r.status === 'applied' ? `직전 값으로 되돌렸습니다.${r.fallback ? `\n${fallbackNote(r.fallback, hasVars)}` : editorOpen && hasVars ? `\n${EDITOR_VAR_NOTE}` : ''}` : r.status === 'missing' && !backup ? '되돌릴 백업이 없습니다.' : d.text;
+        const text = r.status === 'applied' ? t('undoSuccess', { note: r.fallback ? `\n${fallbackNote(r.fallback, hasVars, language)}` : editorOpen && hasVars ? `\n${t('editorVariablesNote')}` : '' }) : r.status === 'missing' && !backup ? t('noBackup') : d.text;
         const ok = r.status === 'applied' || r.status === 'noop';
         send({ type: 'result', level: r.fallback && r.status === 'applied' ? 'warning' : d.level, text, presetId: msg.presetId, switchConnection: ok && backup?.connectionSwitchedTo ? backup.connectionBefore : undefined }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
@@ -281,7 +287,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
       editorWaits.delete(msg.reqId);
       clearTimeout(w.timer);
       if (msg.ok) w.resolve({ changed: msg.changed === true, prev: msg.prev ?? {} });
-      else w.reject(new Error(msg.error || '편집기가 값을 받지 못했습니다.'));
+      else w.reject(new Error(msg.error || t('editorReplyFailed')));
       return;
     }
 
@@ -294,9 +300,9 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
     case 'import':
       await serial(userId, async () => {
         const store = await loadStore(userId);
-        const r = importProfiles(store, msg.text);
+        const r = importProfiles(store, msg.text, Date.now(), language);
         if (r.added) await saveStore(userId, store);
-        const text = r.added ? `${r.added}개를 가져왔습니다.` : '가져온 프로필이 없습니다.';
+        const text = r.added ? t('importCount', { count: r.added }) : t('importEmpty');
         send({ type: 'result', level: r.errors.length ? 'warning' : 'info', text: [text, ...r.errors].join('\n') }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
@@ -306,6 +312,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
       await serial(userId, async () => {
         const store = await loadStore(userId);
         if (typeof msg.settings.autoApply === 'boolean') store.settings.autoApply = msg.settings.autoApply;
+        if (msg.settings.language === 'auto' || msg.settings.language === 'ko' || msg.settings.language === 'en') store.settings.language = msg.settings.language;
         await saveStore(userId, store);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
@@ -323,6 +330,9 @@ spindle.onFrontendMessage((payload, userId, frontendSessionId) => {
   if (!payload || typeof payload !== 'object' || typeof (payload as { type?: unknown }).type !== 'string') return;
   handle(payload as ToBackend, userId, frontendSessionId).catch((e) => {
     spindle.log.error(`[setting-profiles] ${(payload as { type: string }).type}: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
-    spindle.toast.error(e instanceof Error ? e.message : String(e), { userId });
+    const t = translator((payload as ToBackend).language === 'en' ? 'en' : 'ko');
+    const text = t('unexpectedError');
+    spindle.toast.error(text, { userId });
+    send({ type: 'result', level: 'error', text, refresh: false }, userId, frontendSessionId);
   });
 });
