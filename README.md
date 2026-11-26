@@ -6,7 +6,7 @@ Use one [Lumiverse](https://lumiverse.chat/) preset with different models: save 
 
 The interface is **Korean**; this guide includes the actual button labels.
 
-<!-- screenshot: Profiles drawer tab with a target preset and saved profile cards -->
+![Profiles drawer tab with a target preset and two saved profile cards](docs/images/profiles-tab.png)
 
 ## Features
 
@@ -36,7 +36,7 @@ The interface is **Korean**; this guide includes the actual button labels.
    - **`generation` — optional:** enables connection switching and auto-apply; manual sampler/variable profiles work without it. No model calls are made.
 4. Open the drawer's **프로필** (Profiles) tab.
 
-<!-- screenshot: Extension enabled with presets and generation permission controls -->
+![Setting Profiles enabled in Extensions with presets and generation permissions](docs/images/extension-permissions.png)
 
 ## Usage
 
@@ -51,7 +51,7 @@ The interface is **Korean**; this guide includes the actual button labels.
 
 **Input tips:** A checked blank numeric field clears its override. With samplers enabled, cleared temperature/max tokens use **1.0 / 16384**; other cleared numbers are omitted. Zero also omits some parameters. Range variables use `[1, 5]`; multiselect variables use option IDs such as `["a", "b"]`.
 
-<!-- screenshot: Profile form with checked samplers, prompt variables, and optional connection -->
+![Profile form with checked samplers, prompt variables, and a connection selector](docs/images/profile-form.png)
 
 ## Settings
 
@@ -61,7 +61,7 @@ Only profiles for the **active preset** qualify. Assign one profile per preset/c
 
 **Reasoning / effort** follows Lumiverse's connection bindings; configure it in connection settings. This extension does not edit it.
 
-<!-- screenshot: Auto-apply option and the profile's connection trigger checkboxes -->
+![Auto-apply option and the profile connection trigger checkboxes](docs/images/auto-apply.png)
 
 ## Safety and undo
 
@@ -108,7 +108,7 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 
 화면은 **한국어**이며, 위 영문 안내에도 실제 버튼명을 함께 표기했습니다.
 
-<!-- screenshot: 대상 프리셋과 저장한 프로필 카드가 보이는 프로필 탭 -->
+![대상 프리셋과 저장한 프로필 카드가 보이는 프로필 탭](docs/images/profiles-tab.png)
 
 ## 기능
 
@@ -138,7 +138,7 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
    - **`generation` — 선택:** 연결 전환·자동 적용에 필요합니다. 거부해도 샘플러·변수 프로필은 수동 적용할 수 있으며, 모델을 호출하지는 않습니다.
 4. 서랍의 **프로필** 탭을 엽니다.
 
-<!-- screenshot: 확장 활성화 상태와 presets·generation 권한 설정 -->
+![확장 활성화 상태와 presets·generation 권한](docs/images/extension-permissions.png)
 
 ## 사용법
 
@@ -153,7 +153,7 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 
 **입력 팁:** 체크한 숫자 칸을 비우면 값을 비웁니다. 샘플러 사용이 켜져 있으면 비운 온도·최대 토큰은 **1.0 / 16384**를 사용하고, 나머지 비운 숫자는 요청에서 생략합니다. 일부 항목은 0도 생략을 뜻합니다. 범위 변수는 `[1, 5]`, 다중 선택은 `["a", "b"]`처럼 선택지 ID로 입력합니다.
 
-<!-- screenshot: 체크한 샘플러, 프롬프트 변수, 연결 선택이 보이는 프로필 폼 -->
+![체크한 샘플러, 프롬프트 변수, 연결 선택이 보이는 프로필 폼](docs/images/profile-form.png)
 
 ## 설정
 
@@ -163,7 +163,7 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 
 **추론·effort**는 Lumiverse의 연결 바인딩을 따릅니다. 연결 설정에서 지정하세요. 이 확장이 직접 수정하지는 않습니다.
 
-<!-- screenshot: 자동 적용 옵션과 프로필별 연결 체크박스 -->
+![자동 적용 옵션과 프로필별 연결 체크박스](docs/images/auto-apply.png)
 
 ## 안전과 되돌리기
 
