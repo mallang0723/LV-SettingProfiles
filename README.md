@@ -8,7 +8,7 @@ One extension includes both Korean and English UI. In the Profiles Drawer tab, c
 
 **Auto follows Lumiverse's interface language (Settings → Display → Interface language)**, stored as `lumiverse-ui-language`: Korean selects Korean; every other stored language selects English. If no preference is stored (or storage is unavailable), Auto uses `navigator.language`: Korean when it starts with `ko`, otherwise English. Manual selection overrides Auto. Auto rechecks after host language changes (at 0, 150, and 500ms, stopping when the stored value changes), on storage events, and when the window gains focus or becomes visible. Existing status messages also follow language changes. Screenshots show the Korean UI; the guide lists both button labels.
 
-![Profiles drawer tab with a target preset and two saved profile cards](docs/images/profiles-tab.png)
+![Profiles drawer tab with a target preset and two saved profile cards](docs/images/profiles-tab-en.png)
 
 ## Features
 
@@ -38,7 +38,7 @@ One extension includes both Korean and English UI. In the Profiles Drawer tab, c
    - **`generation` — optional:** enables connection switching and auto-apply; manual sampler/variable profiles work without it. No model calls are made.
 4. Open the Drawer’s **세팅 / Settings P.** tab (full title: **설정 프로필 / Setting Profiles**).
 
-![Setting Profiles enabled in Extensions with presets and generation permissions](docs/images/extension-permissions.png)
+![Setting Profiles enabled in Extensions with presets and generation permissions](docs/images/extension-permissions-en.png)
 
 ## Usage
 
@@ -53,7 +53,7 @@ One extension includes both Korean and English UI. In the Profiles Drawer tab, c
 
 **Input tips:** A checked blank numeric field clears its override. With samplers enabled, cleared temperature/max tokens use **1.0 / 16384**; other cleared numbers are omitted. Zero also omits some parameters. Range variables use `[1, 5]`; multiselect variables use option IDs such as `["a", "b"]`.
 
-![Profile form with checked samplers, prompt variables, and a connection selector](docs/images/profile-form.png)
+![Profile form with checked samplers, prompt variables, and a connection selector](docs/images/profile-form-en.png)
 
 ## Settings
 
@@ -65,7 +65,7 @@ Only profiles for the **active preset** qualify. Assign one profile per preset/c
 
 **Reasoning / effort** follows Lumiverse's connection bindings; configure it in connection settings. This extension does not edit it.
 
-![Auto-apply option and the profile connection trigger checkboxes](docs/images/auto-apply.png)
+![Auto-apply option and the profile connection trigger checkboxes](docs/images/auto-apply-en.png)
 
 ## Safety and undo
 
