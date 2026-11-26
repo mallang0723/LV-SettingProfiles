@@ -2,6 +2,8 @@
 export const messages = {
   ko: {
   "title": "설정 프로필",
+  "shortName": "세팅",
+  "fieldError": "{label}: {error}",
   "profileKeyword": "profile",
   "profiles": "프로필",
   "description": "모델별 샘플러·프롬프트 변수·연결 프로필",
@@ -130,6 +132,8 @@ export const messages = {
 },
   en: {
   "title": "Setting Profiles",
+  "shortName": "Settings P.",
+  "fieldError": "{label}: {error}",
   "profileKeyword": "profile",
   "profiles": "Profiles",
   "description": "Sampler, Prompt Variables, and Connection profiles for each model",
@@ -289,3 +293,31 @@ export function translate(language: Language, key: MessageKey, params: Params = 
 }
 
 export const translator = (language: Language) => (key: MessageKey, params?: Params) => translate(language, key, params);
+
+/** Serializable text: only keys are translated; user values remain literal. */
+export type LocalizedMessage = string | {
+  key: MessageKey;
+  params?: Record<string, LocalizedMessage | number>;
+} | { parts: LocalizedMessage[]; separator: string };
+
+export const message = (key: MessageKey, params?: Record<string, LocalizedMessage | number>): LocalizedMessage => ({ key, params });
+export const joinMessages = (parts: LocalizedMessage[], separator = ''): LocalizedMessage => ({ parts, separator });
+
+export function renderMessage(language: Language, value: LocalizedMessage): string {
+  if (typeof value === 'string') return value;
+  if ('parts' in value) return value.parts.map((part) => renderMessage(language, part)).join(value.separator);
+  const params = Object.fromEntries(Object.entries(value.params ?? {}).map(([key, param]) => [
+    key, typeof param === 'number' ? param : renderMessage(language, param),
+  ]));
+  return translate(language, value.key, params);
+}
+
+/** Preserve a keyed validation/editor error through catch blocks and the worker bridge. */
+export class LocalizedError extends Error {
+  constructor(readonly localizedMessage: LocalizedMessage, language: Language = 'ko') {
+    super(renderMessage(language, localizedMessage));
+  }
+}
+
+export const errorMessage = (error: unknown): LocalizedMessage =>
+  error instanceof LocalizedError ? error.localizedMessage : message('unexpectedError');

@@ -1,12 +1,12 @@
 # Setting Profiles for Lumiverse · 설정 프로필
 
-Version **0.2.0-v1** · [한국어](#한국어)
+Version **0.2.0-v2** · [한국어](#한국어)
 
 Use one [Lumiverse](https://lumiverse.chat/) preset with different models: save selected sampler settings and prompt-variable values as profiles, optionally attach a connection, and apply them together. Keep your prompt structure without duplicating presets or editing blocks and regex scripts.
 
 One extension includes both Korean and English UI. In the Profiles Drawer tab, choose **언어 / Language → Auto / 한국어 / English**. The default is **Auto**; changes apply immediately without reloading and are saved per Lumiverse user.
 
-**Auto follows Lumiverse's interface language (Settings → Display → Interface language)**, stored as `lumiverse-ui-language`: Korean selects Korean; every other stored language selects English. If no preference is stored (or storage is unavailable), Auto uses `navigator.language`: Korean when it starts with `ko`, otherwise English. Manual selection overrides Auto. Auto updates when the host language changes or a browser storage event arrives. Screenshots show the Korean UI; the guide lists both button labels.
+**Auto follows Lumiverse's interface language (Settings → Display → Interface language)**, stored as `lumiverse-ui-language`: Korean selects Korean; every other stored language selects English. If no preference is stored (or storage is unavailable), Auto uses `navigator.language`: Korean when it starts with `ko`, otherwise English. Manual selection overrides Auto. Auto rechecks after host language changes (at 0, 150, and 500ms, stopping when the stored value changes), on storage events, and when the window gains focus or becomes visible. Existing status messages also follow language changes. Screenshots show the Korean UI; the guide lists both button labels.
 
 ![Profiles drawer tab with a target preset and two saved profile cards](docs/images/profiles-tab.png)
 
@@ -36,7 +36,7 @@ One extension includes both Korean and English UI. In the Profiles Drawer tab, c
 3. Enable **설정 프로필** and review **Permissions**:
    - **`presets` — required:** reads presets and updates sampler/variable values.
    - **`generation` — optional:** enables connection switching and auto-apply; manual sampler/variable profiles work without it. No model calls are made.
-4. Open the drawer's **프로필** (Profiles) tab.
+4. Open the Drawer’s **세팅 / Settings P.** tab (full title: **설정 프로필 / Setting Profiles**).
 
 ![Setting Profiles enabled in Extensions with presets and generation permissions](docs/images/extension-permissions.png)
 
@@ -100,6 +100,8 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 
 ## Changelog
 
+- **0.2.0-v2** — Fix live Auto language timing, refresh on focus/visibility, retranslate existing status messages, and distinguish the Drawer tab with **세팅 / Settings P.**.
+
 - **0.2.0-v1** — One build with Korean/English UI, per-user language selection, live Auto language updates, and localized results and input-bar shortcut.
 
 - **0.1.0** — Sampler/variable profiles, connection switching and auto-apply, one-level undo, JSON import/export, conflict retry, and open-editor handling.
@@ -108,13 +110,13 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 
 # 한국어
 
-버전 **0.2.0-v1**
+버전 **0.2.0-v2**
 
 같은 [Lumiverse](https://lumiverse.chat/) 프리셋을 여러 모델에 맞춰 사용하세요. 선택한 샘플러 설정과 프롬프트 변수 값을 프로필로 저장하고, 필요하면 연결도 지정해 한 번에 적용합니다. 프리셋을 복사하거나 블록·정규식을 수정하지 않고 프롬프트 구조를 유지할 수 있습니다.
 
 하나의 확장에서 한국어와 영어 UI를 모두 제공합니다. 프로필 Drawer 탭의 **언어 / Language → Auto / 한국어 / English**에서 선택하세요. 기본값은 **Auto**이며, 새로 고침 없이 즉시 적용되고 Lumiverse 사용자별로 저장됩니다.
 
-**Auto는 Lumiverse의 인터페이스 언어(설정 → 화면 표시 → 인터페이스 언어)**를 따릅니다. `lumiverse-ui-language`에 저장된 값이 한국어이면 한국어, 그 외에는 영어를 표시합니다. 저장값이 없거나 저장소를 읽을 수 없을 때만 브라우저의 `navigator.language`가 `ko`로 시작하면 한국어, 아니면 영어를 사용합니다. 수동 선택이 Auto보다 우선하며, Auto 상태에서는 호스트 언어 변경과 브라우저 저장소 이벤트를 즉시 반영합니다. 스크린샷은 한국어 UI 기준입니다.
+**Auto는 Lumiverse의 인터페이스 언어(설정 → 화면 표시 → 인터페이스 언어)**를 따릅니다. `lumiverse-ui-language`에 저장된 값이 한국어이면 한국어, 그 외에는 영어를 표시합니다. 저장값이 없거나 저장소를 읽을 수 없을 때만 브라우저의 `navigator.language`가 `ko`로 시작하면 한국어, 아니면 영어를 사용합니다. 수동 선택이 Auto보다 우선하며, Auto 상태에서는 호스트 언어 변경 후 0·150·500ms에 저장값을 재확인하고, 값이 바뀌면 재시도를 중단합니다. 저장소 이벤트와 창 포커스·다시 표시될 때도 반영합니다. 이미 표시된 상태 메시지도 선택 언어로 다시 번역됩니다. 스크린샷은 한국어 UI 기준입니다.
 
 ![대상 프리셋과 저장한 프로필 카드가 보이는 프로필 탭](docs/images/profiles-tab.png)
 
@@ -144,7 +146,7 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 3. **설정 프로필**의 **Enable**을 켜고 **Permissions**를 확인합니다.
    - **`presets` — 필수:** 프리셋을 읽고 샘플러·변수 값을 갱신합니다.
    - **`generation` — 선택:** 연결 전환·자동 적용에 필요합니다. 거부해도 샘플러·변수 프로필은 수동 적용할 수 있으며, 모델을 호출하지는 않습니다.
-4. 서랍의 **프로필** 탭을 엽니다.
+4. 서랍의 **세팅 / Settings P.** 탭을 엽니다(전체 제목: **설정 프로필 / Setting Profiles**).
 
 ![확장 활성화 상태와 presets·generation 권한](docs/images/extension-permissions.png)
 
@@ -207,6 +209,8 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 [MIT](LICENSE). 기존 저작권·저작자 표기는 [LICENSE](LICENSE)에, author 필드는 [spindle.json](spindle.json)에 유지됩니다.
 
 ## 변경 기록
+
+- **0.2.0-v2** — Auto 언어 전환 시점 수정, 포커스·표시 상태 변경 반영, 기존 상태 메시지 재번역, **세팅 / Settings P.** 탭 이름으로 구분.
 
 - **0.2.0-v1** — 단일 빌드의 한국어·영어 UI, 사용자별 언어 설정, Auto 실시간 반영, 결과 메시지 번역과 입력창 메뉴.
 

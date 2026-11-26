@@ -1,10 +1,10 @@
 // Backend worker: stores profiles per user and applies them to presets through the presets permission.
 
-import { translator, type Language, type MessageKey } from './i18n';
+import { message, joinMessages, renderMessage, LocalizedError, type LocalizedMessage, type Language, type MessageKey } from './i18n';
 declare const spindle: import('lumiverse-spindle-types').SpindleAPI;
 
 import {
-  applyProfile, applyProfileViaEditor, fallbackNote, describePreset, resolveActive, writeRoute, samplerDisabledWarning, exportProfiles, importProfiles, normalizeProfile, normalizeStore,
+  applyProfile, applyProfileViaEditor, fallbackMessage, describePreset, resolveActive, writeRoute, samplerDisabledWarning, exportProfiles, importProfiles, normalizeProfile, normalizeStore,
   uniqueName, undoBackup, undoBackupViaEditor,
   type CommitResult, type EditorCommitResult, type EditorSampler, type PresetHost, type PresetLike,
 } from './core';
@@ -18,6 +18,16 @@ const SOURCE_KEYS: Record<string, MessageKey> = {
 
 function send(payload: ToFrontend, userId: string, sessionId?: string): void {
   spindle.sendToFrontend(payload, userId, sessionId ? { frontendSessionId: sessionId } : undefined);
+}
+
+// Keep text for older frontends; current frontends retain the descriptor and render in their current language.
+type Result = Extract<ToFrontend, { type: 'result' }>;
+type LocalizedResult = Omit<Result, 'text'> & { text: LocalizedMessage };
+function localizedSender(language: Language) {
+  return (payload: Exclude<ToFrontend, Result> | LocalizedResult, userId: string, sessionId?: string) => {
+    if (payload.type === 'result') send({ ...payload, message: payload.text, text: renderMessage(language, payload.text) }, userId, sessionId);
+    else send(payload, userId, sessionId);
+  };
 }
 
 // One queue per user so that read-modify-write on the store never interleaves.
@@ -82,11 +92,11 @@ const lastChat = new Map<string, string>();
 const editorWaits = new Map<string, { resolve: (v: { changed: boolean; prev: Record<string, import('./shared').Prev> }) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }>();
 
 function askEditor(userId: string, sessionId: string | undefined, presetId: string, language: Language): EditorSampler {
-  const t = translator(language);
+  const t = message;
   return (patch) => new Promise((resolve, reject) => {
-    if (!sessionId) { reject(new Error(t('editorSessionMissing'))); return; }
+    if (!sessionId) { reject(new LocalizedError(t('editorSessionMissing'), language)); return; }
     const reqId = newId('ed');
-    const timer = setTimeout(() => { editorWaits.delete(reqId); reject(new Error(t('editorTimeout'))); }, 15000);
+    const timer = setTimeout(() => { editorWaits.delete(reqId); reject(new LocalizedError(t('editorTimeout'), language)); }, 15000);
     editorWaits.set(reqId, { resolve, reject, timer });
     send({ type: 'editor_patch', reqId, presetId, set: patch.set, remove: patch.remove }, userId, sessionId);
   });
@@ -104,8 +114,8 @@ async function stateMsg(userId: string, chatIdIn: string | null, store?: Store, 
   };
 }
 
-function describeResult(r: CommitResult, what: string, language: Language): { level: 'info' | 'warning' | 'error'; text: string } {
-  const t = translator(language);
+function describeResult(r: CommitResult, what: LocalizedMessage): { level: 'info' | 'warning' | 'error'; text: LocalizedMessage } {
+  const t = message;
   switch (r.status) {
     case 'applied': {
       const skip = r.skipped.length ? t('skippedVariables', { count: r.skipped.length }) : '';
@@ -124,14 +134,15 @@ async function doApply(
   userId: string, sessionId: string | undefined, store: Store, profile: Profile,
   chatId: string | null, activeConnectionId: string | null, switched: boolean, auto: boolean, ed: EditorInfo = {}, activeHint?: string | null, language: Language = 'ko',
 ): Promise<void> {
-  const t = translator(language);
+  const t = message;
+  const send = localizedSender(language);
   const route = writeRoute(ed, profile.presetId, !!sessionId);
   const editorOpen = route === 'editor';
   if (route === 'refuse') {
     const text = auto
       ? t('autoRefused', { name: profile.name })
       : t('applyRefused', { name: profile.name });
-    if (auto) spindle.toast.warning(text, { userId });
+    if (auto) spindle.toast.warning(renderMessage(language, text), { userId });
     send({ type: 'result', level: 'warning', text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
     return;
   }
@@ -143,39 +154,40 @@ async function doApply(
       : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
   } catch (e) {
     const text = t(auto ? 'autoApplyFailed' : 'applyFailed', { name: profile.name, error: t('unexpectedError') });
-    if (auto) spindle.toast.error(text.slice(0, 500), { userId });
+    if (auto) spindle.toast.error(renderMessage(language, text).slice(0, 500), { userId });
     send({ type: 'result', level: 'error', text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
     return;
   }
   await saveStore(userId, store);
-  const d = describeResult(r, t(auto ? 'autoApplyAction' : 'applyAction', { name: profile.name }), language);
+  const d = describeResult(r, t(auto ? 'autoApplyAction' : 'applyAction', { name: profile.name }));
   let text = d.text;
   let level = d.level;
   if (r.status === 'applied' || r.status === 'noop') {
     const w = samplerDisabledWarning(r.preset, profile, language);
     if (w) {
-      text += `\n${w}`;
+      text = joinMessages([text, message('samplerDisabled')], '\n');
       level = 'warning';
     }
   }
   if (r.fallback) {
-    if (r.status === 'applied') { text += `\n${fallbackNote(r.fallback, Object.keys(profile.variables).length > 0, language)}`; level = 'warning'; }
-  } else if (editorOpen && r.status === 'applied' && Object.keys(profile.variables).length) text += `\n${t('editorVariablesNote')}`;
+    if (r.status === 'applied') { text = joinMessages([text, fallbackMessage(r.fallback, Object.keys(profile.variables).length > 0)], '\n'); level = 'warning'; }
+  } else if (editorOpen && r.status === 'applied' && Object.keys(profile.variables).length) text = joinMessages([text, t('editorVariablesNote')], '\n');
   if ((r.status === 'applied' || r.status === 'noop') && Object.keys(profile.variables).length) {
     const act = await active(userId, chatId, activeHint);
     if (act.source && act.source !== 'none') {
-      text += t('bindingWarning', { source: SOURCE_KEYS[act.source] ? t(SOURCE_KEYS[act.source]!) : act.source });
+      text = joinMessages([text, t('bindingWarning', { source: SOURCE_KEYS[act.source] ? t(SOURCE_KEYS[act.source]!) : act.source })]);
       level = 'warning';
     }
   }
-  if (auto && (r.status !== 'noop' || level === 'warning')) spindle.toast[level](text.slice(0, 500), { userId });
+  if (auto && (r.status !== 'noop' || level === 'warning')) spindle.toast[level](renderMessage(language, text).slice(0, 500), { userId });
   send({ type: 'result', level, text, presetId: profile.presetId, switchConnection: r.status === 'applied' || r.status === 'noop' ? target : undefined }, userId, auto ? undefined : sessionId);
   send(await stateMsg(userId, chatId, store, false, activeHint), userId, sessionId);
 }
 
 async function handle(msg: ToBackend, userId: string, sessionId: string | undefined): Promise<void> {
   const language = msg.language === 'en' ? 'en' : 'ko';
-  const t = translator(language);
+  const t = message;
+  const send = localizedSender(language);
   switch (msg.type) {
     case 'load':
       send(await stateMsg(userId, msg.chatId, undefined, true, msg.activePresetId), userId, sessionId);
@@ -241,7 +253,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
         const act = await active(userId, msg.chatId, msg.activePresetId);
         if (!act.known) {
           if (store.profiles.some((p) => p.autoConnectionIds.includes(msg.connectionId!))) {
-            spindle.toast.warning(t('autoActiveUnknown'), { userId });
+            spindle.toast.warning(renderMessage(language, t('autoActiveUnknown')), { userId });
           }
           return;
         }
@@ -272,9 +284,9 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
           return;
         }
         await saveStore(userId, store);
-        const d = describeResult(r, t('undoAction'), language);
+        const d = describeResult(r, t('undoAction'));
         const hasVars = !!backup && Object.keys(backup.variables).length > 0;
-        const text = r.status === 'applied' ? t('undoSuccess', { note: r.fallback ? `\n${fallbackNote(r.fallback, hasVars, language)}` : editorOpen && hasVars ? `\n${t('editorVariablesNote')}` : '' }) : r.status === 'missing' && !backup ? t('noBackup') : d.text;
+        const text = r.status === 'applied' ? t('undoSuccess', { note: r.fallback ? joinMessages(['\n', fallbackMessage(r.fallback, hasVars)]) : editorOpen && hasVars ? joinMessages(['\n', t('editorVariablesNote')]) : '' }) : r.status === 'missing' && !backup ? t('noBackup') : d.text;
         const ok = r.status === 'applied' || r.status === 'noop';
         send({ type: 'result', level: r.fallback && r.status === 'applied' ? 'warning' : d.level, text, presetId: msg.presetId, switchConnection: ok && backup?.connectionSwitchedTo ? backup.connectionBefore : undefined }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
@@ -287,7 +299,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
       editorWaits.delete(msg.reqId);
       clearTimeout(w.timer);
       if (msg.ok) w.resolve({ changed: msg.changed === true, prev: msg.prev ?? {} });
-      else w.reject(new Error(msg.error || t('editorReplyFailed')));
+      else w.reject(msg.errorMessage ? new LocalizedError(msg.errorMessage, language) : msg.error ? new Error(msg.error) : new LocalizedError(t('editorReplyFailed'), language));
       return;
     }
 
@@ -303,7 +315,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
         const r = importProfiles(store, msg.text, Date.now(), language);
         if (r.added) await saveStore(userId, store);
         const text = r.added ? t('importCount', { count: r.added }) : t('importEmpty');
-        send({ type: 'result', level: r.errors.length ? 'warning' : 'info', text: [text, ...r.errors].join('\n') }, userId, sessionId);
+        send({ type: 'result', level: r.errors.length ? 'warning' : 'info', text: joinMessages([text, ...r.errorMessages], '\n') }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
       return;
@@ -330,9 +342,11 @@ spindle.onFrontendMessage((payload, userId, frontendSessionId) => {
   if (!payload || typeof payload !== 'object' || typeof (payload as { type?: unknown }).type !== 'string') return;
   handle(payload as ToBackend, userId, frontendSessionId).catch((e) => {
     spindle.log.error(`[setting-profiles] ${(payload as { type: string }).type}: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
-    const t = translator((payload as ToBackend).language === 'en' ? 'en' : 'ko');
+    const language = (payload as ToBackend).language === 'en' ? 'en' : 'ko';
+    const t = message;
+    const send = localizedSender(language);
     const text = t('unexpectedError');
-    spindle.toast.error(text, { userId });
+    spindle.toast.error(renderMessage(language, text), { userId });
     send({ type: 'result', level: 'error', text, refresh: false }, userId, frontendSessionId);
   });
 });

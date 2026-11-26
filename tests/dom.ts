@@ -56,7 +56,7 @@ export function installTestDOM() {
   const storage = new Map<string, string>();
   const win = new EventTarget();
   const values = {
-    document: { createElement: (tag: string) => new TestElement(tag), body: new TestElement('body'), head: new TestElement('head') },
+    document: Object.assign(new EventTarget(), { visibilityState: 'visible', createElement: (tag: string) => new TestElement(tag), body: new TestElement('body'), head: new TestElement('head') }),
     window: win,
     localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value) },
     navigator: { language: 'en-US' },

@@ -1,6 +1,6 @@
 // Types and small helpers shared by the backend worker and the browser frontend.
 
-import type { Language, LanguageSetting, MessageKey } from './i18n';
+import type { Language, LanguageSetting, MessageKey, LocalizedMessage } from './i18n';
 export type Json = string | number | boolean | null | Json[] | { [k: string]: Json };
 
 export const SAMPLER_KEYS = [
@@ -119,7 +119,7 @@ export type ToBackend = { language?: Language } & (
   | ({ type: 'apply'; id: string; chatId: string | null; activeConnectionId: string | null; switched: boolean } & EditorInfo)
   | ({ type: 'undo'; presetId: string } & EditorInfo)
   | ({ type: 'connection_changed'; connectionId: string | null; chatId: string | null; activePresetId?: string | null } & EditorInfo)
-  | { type: 'editor_reply'; reqId: string; ok: boolean; error?: string; changed?: boolean; prev?: Record<string, Prev> }
+  | { type: 'editor_reply'; reqId: string; ok: boolean; error?: string; errorMessage?: LocalizedMessage; changed?: boolean; prev?: Record<string, Prev> }
   | { type: 'export'; ids?: string[] }
   | { type: 'import'; text: string }
   | { type: 'set_settings'; settings: Partial<Settings> }
@@ -128,7 +128,7 @@ export type ToBackend = { language?: Language } & (
 export type ToFrontend =
   | StateMsg
   | { type: 'detail'; detail: PresetDetail | null; presetId: string }
-  | { type: 'result'; level: 'info' | 'warning' | 'error'; text: string; refresh?: boolean; switchConnection?: string | null; presetId?: string }
+  | { type: 'result'; level: 'info' | 'warning' | 'error'; text: string; message?: LocalizedMessage; refresh?: boolean; switchConnection?: string | null; presetId?: string }
   | { type: 'export'; text: string; filename: string }
   | ({ type: 'editor_patch'; reqId: string; presetId: string } & SamplerPatch);
 

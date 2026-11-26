@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { messages } from '../src/i18n';
+import { messages, renderMessage } from '../src/i18n';
 import { emptyStore, type Store, type ToBackend, type ToFrontend } from '../src/shared';
 import { FakeHost } from './fake-host';
 
@@ -57,10 +57,13 @@ test('backend persists language per user and localizes results, imports, auto-ap
     ]);
     expect(resultText(en)).toBe('Saved profile ‘Example’.');
     expect(resultText(ko)).toBe("'Example' 프로필을 저장했습니다.");
+    const savedMessage = en.find((r) => r.type === 'result')!.message!;
+    expect(renderMessage('ko', JSON.parse(JSON.stringify(savedMessage)))).toBe("'Example' 프로필을 저장했습니다.");
     const loaded = await request('account-a', { type: 'load', chatId: null, language: 'en' });
     expect(loaded[0]!.type === 'state' && loaded[0]!.settings.language).toBe('en');
     const invalidImport = await request('account-a', { type: 'import', text: '{', language: 'en' });
     expect(resultText(invalidImport)).toBe(`${messages.en.importEmpty}\n${messages.en.invalidJson}`);
+    expect(renderMessage('ko', invalidImport.find((r) => r.type === 'result')!.message!)).toBe(`${messages.ko.importEmpty}\n${messages.ko.invalidJson}`);
     await request('account-a', { type: 'connection_changed', connectionId: 'c1', chatId: null, activePresetId: 'p1', language: 'en' });
     expect(toasts.at(-1)?.text).toBe('Auto-apply ‘Example’ completed.');
     expect(host('account-a').preset.parameters.samplerOverrides).toMatchObject({ temperature: 0.5 });

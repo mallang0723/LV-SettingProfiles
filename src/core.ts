@@ -1,7 +1,7 @@
 // Host-independent logic: partial apply with revision retry, undo, validation, export/import.
 // The preset block list, prompts, name and regexes are never part of an update payload.
 
-import { normalizeLanguage, translator, translate, type Language } from './i18n';
+import { normalizeLanguage, translator, translate, message, joinMessages, renderMessage, LocalizedError, type LocalizedMessage, type MessageKey, type Language } from './i18n';
 import {
   type Backup, type Json, type PresetDetail, type SamplerPatch, type Prev, type Profile, type Store, type VariableInfo, type VariableValues,
   BOOLEAN_SAMPLER_KEYS, SAMPLER_KEYS, emptyStore, newId,
@@ -424,18 +424,24 @@ export function samplerPatch(
 export type EditorSampler = (patch: SamplerPatch) => Promise<{ changed: boolean; prev: Record<string, Prev> }>;
 
 /** Set when the editor path was not used and the write went straight to the host instead. `detected` = known beforehand, no editor call was made. */
-export interface EditorFallback { reason: string; detected: boolean }
+export interface EditorFallback { reason: string; detected: boolean; reasonMessage?: LocalizedMessage }
 export type EditorCommitResult = CommitResult & { fallback?: EditorFallback };
 
 export const EDITOR_VAR_NOTE = translate('ko', 'editorVariablesNote');
 
 /** Text for a write that went straight to the server because the editor path was not usable. */
-export function fallbackNote(f: EditorFallback, varsChanged: boolean, language: Language = 'ko'): string {
-  const t = translator(language);
+export function fallbackMessage(f: EditorFallback, varsChanged: boolean): LocalizedMessage {
   const lead = f.detected || /^Invalid Loom/.test(f.reason)
-    ? t('fallbackBlocks')
-    : t('fallbackReason', { reason: f.reason.slice(0, 120) });
-  return t('fallbackNote', { lead, stale: t('fallbackStaleNote'), variables: varsChanged ? `\n${t('editorVariablesNote')}` : '' });
+    ? message('fallbackBlocks')
+    : message('fallbackReason', { reason: f.reasonMessage ?? f.reason.slice(0, 120) });
+  return message('fallbackNote', {
+    lead, stale: message('fallbackStaleNote'),
+    variables: varsChanged ? joinMessages(['\n', message('editorVariablesNote')]) : '',
+  });
+}
+
+export function fallbackNote(f: EditorFallback, varsChanged: boolean, language: Language = 'ko'): string {
+  return renderMessage(language, fallbackMessage(f, varsChanged));
 }
 
 const LOOM_REQUIRED_BLOCK_KEYS = ['id', 'name', 'content', 'role', 'enabled', 'position', 'depth', 'marker', 'isLocked', 'color', 'injectionTrigger', 'group'];
@@ -480,7 +486,7 @@ export async function applyProfileViaEditor(
   let fallback: EditorFallback | undefined = skipReason ? { reason: skipReason, detected: true } : undefined;
   let ed: { changed: boolean; prev: Record<string, Prev> } = { changed: false, prev: {} };
   if (!fallback) {
-    try { ed = await editor({ set: profile.sampler, remove: [] }); } catch (e) { fallback = { reason: e instanceof Error ? e.message : String(e), detected: false }; }
+    try { ed = await editor({ set: profile.sampler, remove: [] }); } catch (e) { fallback = { reason: e instanceof Error ? e.message : String(e), detected: false, ...(e instanceof LocalizedError ? { reasonMessage: e.localizedMessage } : {}) }; }
   }
   if (fallback) return { ...(await applyProfile(host, store, profile, conn)), fallback };
   let plan: Plan | null = null;
@@ -510,7 +516,7 @@ export async function undoBackupViaEditor(
   let fallback: EditorFallback | undefined = skipReason ? { reason: skipReason, detected: true } : undefined;
   let ed: { changed: boolean; prev: Record<string, Prev> } = { changed: false, prev: {} };
   if (!fallback) {
-    try { ed = await editor(patch); } catch (e) { fallback = { reason: e instanceof Error ? e.message : String(e), detected: false }; }
+    try { ed = await editor(patch); } catch (e) { fallback = { reason: e instanceof Error ? e.message : String(e), detected: false, ...(e instanceof LocalizedError ? { reasonMessage: e.localizedMessage } : {}) }; }
   }
   if (fallback) return { ...(await undoBackup(host, store, presetId)), fallback };
   const result = await commit(host, presetId, (p) => planUndo(p, { ...backup, sampler: {} }));
@@ -542,30 +548,32 @@ export function exportProfiles(store: Store, ids?: string[]): string {
   return JSON.stringify({ format: EXPORT_FORMAT, version: 1, profiles }, null, 2);
 }
 
-export function importProfiles(store: Store, text: string, now = Date.now(), language: Language = 'ko'): { added: number; errors: string[] } {
-  const t = translator(language);
+export function importProfiles(store: Store, text: string, now = Date.now(), language: Language = 'ko'): { added: number; errors: string[]; errorMessages: LocalizedMessage[] } {
+  const result = (added: number, keys: MessageKey[]) => ({
+    added, errors: keys.map((key) => translate(language, key)), errorMessages: keys.map((key) => message(key)),
+  });
   let raw: unknown;
   try {
     raw = JSON.parse(text);
   } catch {
-    return { added: 0, errors: [t('invalidJson')] };
+    return result(0, ['invalidJson']);
   }
   if (!isObj(raw) || raw.format !== EXPORT_FORMAT || !Array.isArray(raw.profiles)) {
-    return { added: 0, errors: [t('invalidExport')] };
+    return result(0, ['invalidExport']);
   }
   let added = 0;
-  const errors: string[] = [];
+  const errors: MessageKey[] = [];
   for (const item of raw.profiles.slice(0, 200)) {
     const p = normalizeProfile({ ...(isObj(item) ? item : {}), id: undefined, createdAt: now, updatedAt: now }, now);
     if (!p) {
-      errors.push(t('importSkipped'));
+      errors.push('importSkipped');
       continue;
     }
     p.name = uniqueName(store, p.presetId, p.name);
     store.profiles.push(p);
     added++;
   }
-  return { added, errors };
+  return result(added, errors);
 }
 
 export function uniqueName(store: Store, presetId: string, name: string, exceptId?: string): string {

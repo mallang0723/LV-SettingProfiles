@@ -2,7 +2,7 @@
 import type { SpindleDrawerTabOptions, SpindleInputBarActionOptions } from 'lumiverse-spindle-types';
 import { setup } from '../../src/frontend';
 import { describePreset, normalizeProfile } from '../../src/core';
-import { HOST_LANGUAGE_KEY } from '../../src/i18n';
+import { HOST_LANGUAGE_KEY, message, joinMessages } from '../../src/i18n';
 import { emptyStore, type ToBackend, type ToFrontend } from '../../src/shared';
 import { syntheticPreset } from '../fake-host';
 
@@ -59,14 +59,18 @@ export async function runLanguageScenario(withLocale: boolean) {
   const acknowledge = async () => { (heldSettings as (() => void) | null)?.(); heldSettings = null; await tick(); };
 
   assert(contains('대상 프리셋'), 'host ko wins even though ctx.locale.get() is en');
+  assert(shortName === '세팅', 'Korean short name is distinct from the host Profile tab');
   button('현재 값으로 저장').click();
+  button('저장').click();
+  assert(contains('프로필 이름을 입력하세요.'), 'local validation status starts in Korean');
   const name = root.querySelector<HTMLInputElement>('input[maxlength="80"]')!;
   name.value = 'Unsaved draft'; name.dispatchEvent(new Event('input'));
   chooseLanguage('en');
   // No backend reply yet: the UI must switch synchronously.
   assert(contains('Target Preset') && contains('Prompt Variables') && contains('Use sampler values'), 'switch translates rendered labels immediately');
   assert(root.querySelector<HTMLInputElement>('input[maxlength="80"]')?.value === 'Unsaved draft', 'switch preserves unsaved form');
-  assert(title === 'Setting Profiles' && shortName === 'Profiles' && inputLabel === 'Setting Profiles', 'host surfaces update immediately');
+  assert(title === 'Setting Profiles' && shortName === 'Settings P.' && inputLabel === 'Setting Profiles', 'host surfaces update immediately');
+  assert(contains('Enter a profile name.') && !contains('프로필 이름을 입력하세요.'), 'local validation status rerenders in English');
   assert(inputSubtitle.includes('Sampler'), 'input bar subtitle updates');
   assert(sent.at(-1)?.type === 'set_settings' && sent.at(-1)?.language === 'en', 'resolved language accompanies settings request');
   state(); await tick();
@@ -77,13 +81,36 @@ export async function runLanguageScenario(withLocale: boolean) {
   assert(contains('Target Preset'), 'manual English overrides live host Korean');
   chooseLanguage('auto'); await acknowledge();
   assert(contains('대상 프리셋'), 'Auto returns to host Korean');
-  localStorage.setItem(HOST_LANGUAGE_KEY, 'en');
+  assert(contains('프로필 이름을 입력하세요.'), 'local status returns to Korean');
+  const numeric = Array.from(root.querySelectorAll('input')).find((input) => input.placeholder === '비움' && input.value === '1')!;
+  numeric.value = 'invalid'; numeric.dispatchEvent(new Event('input'));
+  button('저장').click();
+  assert(contains('온도 (temperature): 숫자가 아닙니다'), 'field validation keeps keyed label and error');
+  chooseLanguage('en'); await acknowledge();
+  assert(contains('Temperature: Enter a valid number'), 'field validation rerenders both label and error');
+  chooseLanguage('auto'); await acknowledge();
+  emit({ type: 'result', level: 'warning', refresh: false, text: 'unused legacy translation', message: joinMessages([
+    message('appliedResult', { action: message('applyAction', { name: 'Example {error}' }), skip: message('skippedVariables', { count: 2 }) }),
+    message('samplerDisabled'),
+  ], '\n') });
+  await tick();
+  assert(contains("'Example {error}' 적용했습니다."), 'backend message renders from keys and preserves literal user values');
   if (withLocale) localeListener();
+  localStorage.setItem(HOST_LANGUAGE_KEY, 'en');
+  if (withLocale) await new Promise((resolve) => setTimeout(resolve, 1));
   else window.dispatchEvent(new StorageEvent('storage', { key: HOST_LANGUAGE_KEY }));
   assert(contains('Target Preset'), 'live host English is reread, including legacy host without locale');
+  assert(contains('Apply ‘Example {error}’ completed.') && contains('Skipped 2 variables') && contains('Samplers are off for this Preset'), 'compound backend status rerenders all nested messages in English');
   localStorage.setItem(HOST_LANGUAGE_KEY, 'ko');
   window.dispatchEvent(new StorageEvent('storage', { key: HOST_LANGUAGE_KEY }));
   assert(contains('대상 프리셋'), 'storage event updates Auto');
+  assert(contains('프리셋에 없는 변수 2개는 건너뜀'), 'status switches back to Korean');
+  localStorage.setItem(HOST_LANGUAGE_KEY, 'en');
+  window.dispatchEvent(new Event('focus'));
+  assert(contains('Target Preset') && contains('Apply ‘Example {error}’ completed.'), 'focus refreshes rendered labels and status');
+  localStorage.setItem(HOST_LANGUAGE_KEY, 'ko');
+  document.dispatchEvent(new Event('visibilitychange'));
+  assert(contains('대상 프리셋'), 'visible document refreshes rendered labels');
   chooseLanguage('ko'); await acknowledge();
   localStorage.setItem(HOST_LANGUAGE_KEY, 'en'); localeListener();
   window.dispatchEvent(new StorageEvent('storage', { key: HOST_LANGUAGE_KEY }));

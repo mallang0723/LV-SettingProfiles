@@ -1,6 +1,6 @@
 // Browser harness: the real frontend bundle against a fake Lumiverse context and an in-page backend built on the real core.
 import { applyProfile, describePreset, exportProfiles, importProfiles, normalizeProfile, undoBackup } from '../../src/core';
-import { normalizeLanguage, translator } from '../../src/i18n';
+import { normalizeLanguage, message, joinMessages, renderMessage, type LocalizedMessage } from '../../src/i18n';
 import { setup } from '../../src/frontend';
 import { emptyStore, newId, type ToBackend, type ToFrontend } from '../../src/shared';
 import { FakeHost } from '../fake-host';
@@ -14,12 +14,17 @@ let activeConn = 'c1';
 const subs = new Set<(v: { activeProfileId: string | null }) => void>();
 (window as unknown as Record<string, unknown>).__switchConn = (id: string) => { activeConn = id; subs.forEach((h) => h({ activeProfileId: id })); };
 (window as unknown as Record<string, unknown>).__conn = () => activeConn;
-const out = (m: ToFrontend) => queueMicrotask(() => handler(m));
+const rawOut = (m: ToFrontend) => queueMicrotask(() => handler(m));
 const state = (): ToFrontend => ({ type: 'state', profiles: store.profiles, backups: store.backups, settings: store.settings, presets: [{ id: 'p1', name: 'Synthetic Preset' }], activePresetId: 'p1', activeSource: 'none', activeAvailable: true });
 
 async function backend(m: ToBackend): Promise<void> {
-  const t = translator(m.language === 'en' ? 'en' : 'ko');
-  const result = (status: string, action: string) => status === 'applied' ? t('appliedResult', { action, skip: '' }) : status === 'noop' ? t('noopResult', { action }) : t(status === 'missing' ? 'presetMissing' : 'conflict');
+  const t = message;
+  type Result = Extract<ToFrontend, { type: 'result' }>;
+  const out = (payload: Exclude<ToFrontend, Result> | (Omit<Result, 'text'> & { text: LocalizedMessage })) => {
+    if (payload.type === 'result') rawOut({ ...payload, message: payload.text, text: renderMessage(m.language === 'en' ? 'en' : 'ko', payload.text) });
+    else rawOut(payload);
+  };
+  const result = (status: string, action: LocalizedMessage) => status === 'applied' ? t('appliedResult', { action, skip: '' }) : status === 'noop' ? t('noopResult', { action }) : t(status === 'missing' ? 'presetMissing' : 'conflict');
   switch (m.type) {
     case 'load': out(state()); return;
     case 'detail': out({ type: 'detail', presetId: m.presetId, detail: describePreset((await host.get(m.presetId))!) }); return;
@@ -44,7 +49,7 @@ async function backend(m: ToBackend): Promise<void> {
       return;
     }
     case 'export': out({ type: 'export', text: exportProfiles(store), filename: 'setting-profiles.json' }); return;
-    case 'import': { const r = importProfiles(store, m.text, Date.now(), m.language === 'en' ? 'en' : 'ko'); out({ type: 'result', level: 'info', text: [t('importCount', { count: r.added }), ...r.errors].join('\n') }); out(state()); return; }
+    case 'import': { const r = importProfiles(store, m.text, Date.now(), m.language === 'en' ? 'en' : 'ko'); out({ type: 'result', level: 'info', text: joinMessages([t('importCount', { count: r.added }), ...r.errorMessages], '\n') }); out(state()); return; }
     case 'set_settings': if (m.settings.language !== undefined) store.settings.language = normalizeLanguage(m.settings.language); if (typeof m.settings.autoApply === 'boolean') store.settings.autoApply = m.settings.autoApply; out(state()); return;
     case 'notify': return;
   }

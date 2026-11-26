@@ -3,6 +3,8 @@
 var messages = {
   ko: {
     title: "\uC124\uC815 \uD504\uB85C\uD544",
+    shortName: "\uC138\uD305",
+    fieldError: "{label}: {error}",
     profileKeyword: "profile",
     profiles: "\uD504\uB85C\uD544",
     description: "\uBAA8\uB378\uBCC4 \uC0D8\uD50C\uB7EC\xB7\uD504\uB86C\uD504\uD2B8 \uBCC0\uC218\xB7\uC5F0\uACB0 \uD504\uB85C\uD544",
@@ -133,6 +135,8 @@ var messages = {
   },
   en: {
     title: "Setting Profiles",
+    shortName: "Settings P.",
+    fieldError: "{label}: {error}",
     profileKeyword: "profile",
     profiles: "Profiles",
     description: "Sampler, Prompt Variables, and Connection profiles for each model",
@@ -269,6 +273,27 @@ function translate(language, key, params = {}) {
   return messages[language][key].replace(/\{(\w+)\}/g, (match, name) => Object.hasOwn(params, name) ? String(params[name]) : match);
 }
 var translator = (language) => (key, params) => translate(language, key, params);
+var message = (key, params) => ({ key, params });
+var joinMessages = (parts, separator = "") => ({ parts, separator });
+function renderMessage(language, value) {
+  if (typeof value === "string")
+    return value;
+  if ("parts" in value)
+    return value.parts.map((part) => renderMessage(language, part)).join(value.separator);
+  const params = Object.fromEntries(Object.entries(value.params ?? {}).map(([key, param]) => [
+    key,
+    typeof param === "number" ? param : renderMessage(language, param)
+  ]));
+  return translate(language, value.key, params);
+}
+
+class LocalizedError extends Error {
+  localizedMessage;
+  constructor(localizedMessage, language = "ko") {
+    super(renderMessage(language, localizedMessage));
+    this.localizedMessage = localizedMessage;
+  }
+}
 
 // src/shared.ts
 var SAMPLER_KEYS = [
@@ -639,11 +664,14 @@ async function undoBackup(host, store, presetId) {
   return result;
 }
 var EDITOR_VAR_NOTE = translate("ko", "editorVariablesNote");
-function fallbackNote(f, varsChanged, language = "ko") {
-  const t = translator(language);
-  const lead = f.detected || /^Invalid Loom/.test(f.reason) ? t("fallbackBlocks") : t("fallbackReason", { reason: f.reason.slice(0, 120) });
-  return t("fallbackNote", { lead, stale: t("fallbackStaleNote"), variables: varsChanged ? `
-${t("editorVariablesNote")}` : "" });
+function fallbackMessage(f, varsChanged) {
+  const lead = f.detected || /^Invalid Loom/.test(f.reason) ? message("fallbackBlocks") : message("fallbackReason", { reason: f.reasonMessage ?? f.reason.slice(0, 120) });
+  return message("fallbackNote", {
+    lead,
+    stale: message("fallbackStaleNote"),
+    variables: varsChanged ? joinMessages([`
+`, message("editorVariablesNote")]) : ""
+  });
 }
 async function applyProfileViaEditor(host, store, profile, conn, editor, skipReason) {
   let fallback = skipReason ? { reason: skipReason, detected: true } : undefined;
@@ -652,7 +680,7 @@ async function applyProfileViaEditor(host, store, profile, conn, editor, skipRea
     try {
       ed = await editor({ set: profile.sampler, remove: [] });
     } catch (e) {
-      fallback = { reason: e instanceof Error ? e.message : String(e), detected: false };
+      fallback = { reason: e instanceof Error ? e.message : String(e), detected: false, ...e instanceof LocalizedError ? { reasonMessage: e.localizedMessage } : {} };
     }
   }
   if (fallback)
@@ -695,7 +723,7 @@ async function undoBackupViaEditor(host, store, presetId, editor, skipReason) {
     try {
       ed = await editor(patch);
     } catch (e) {
-      fallback = { reason: e instanceof Error ? e.message : String(e), detected: false };
+      fallback = { reason: e instanceof Error ? e.message : String(e), detected: false, ...e instanceof LocalizedError ? { reasonMessage: e.localizedMessage } : {} };
     }
   }
   if (fallback)
@@ -713,29 +741,33 @@ function exportProfiles(store, ids) {
   return JSON.stringify({ format: EXPORT_FORMAT, version: 1, profiles }, null, 2);
 }
 function importProfiles(store, text, now = Date.now(), language = "ko") {
-  const t = translator(language);
+  const result = (added, keys) => ({
+    added,
+    errors: keys.map((key) => translate(language, key)),
+    errorMessages: keys.map((key) => message(key))
+  });
   let raw;
   try {
     raw = JSON.parse(text);
   } catch {
-    return { added: 0, errors: [t("invalidJson")] };
+    return result(0, ["invalidJson"]);
   }
   if (!isObj(raw) || raw.format !== EXPORT_FORMAT || !Array.isArray(raw.profiles)) {
-    return { added: 0, errors: [t("invalidExport")] };
+    return result(0, ["invalidExport"]);
   }
   let added = 0;
   const errors = [];
   for (const item of raw.profiles.slice(0, 200)) {
     const p = normalizeProfile({ ...isObj(item) ? item : {}, id: undefined, createdAt: now, updatedAt: now }, now);
     if (!p) {
-      errors.push(t("importSkipped"));
+      errors.push("importSkipped");
       continue;
     }
     p.name = uniqueName(store, p.presetId, p.name);
     store.profiles.push(p);
     added++;
   }
-  return { added, errors };
+  return result(added, errors);
 }
 function uniqueName(store, presetId, name, exceptId) {
   const taken = new Set(store.profiles.filter((p) => p.presetId === presetId && p.id !== exceptId).map((p) => p.name));
@@ -758,6 +790,14 @@ var SOURCE_KEYS = {
 };
 function send(payload, userId, sessionId) {
   spindle.sendToFrontend(payload, userId, sessionId ? { frontendSessionId: sessionId } : undefined);
+}
+function localizedSender(language) {
+  return (payload, userId, sessionId) => {
+    if (payload.type === "result")
+      send({ ...payload, message: payload.text, text: renderMessage(language, payload.text) }, userId, sessionId);
+    else
+      send(payload, userId, sessionId);
+  };
 }
 var queues = new Map;
 function serial(userId, fn) {
@@ -810,16 +850,16 @@ async function active(userId, chatId, hint) {
 var lastChat = new Map;
 var editorWaits = new Map;
 function askEditor(userId, sessionId, presetId, language) {
-  const t = translator(language);
+  const t = message;
   return (patch) => new Promise((resolve, reject) => {
     if (!sessionId) {
-      reject(new Error(t("editorSessionMissing")));
+      reject(new LocalizedError(t("editorSessionMissing"), language));
       return;
     }
     const reqId = newId("ed");
     const timer = setTimeout(() => {
       editorWaits.delete(reqId);
-      reject(new Error(t("editorTimeout")));
+      reject(new LocalizedError(t("editorTimeout"), language));
     }, 15000);
     editorWaits.set(reqId, { resolve, reject, timer });
     send({ type: "editor_patch", reqId, presetId, set: patch.set, remove: patch.remove }, userId, sessionId);
@@ -842,8 +882,8 @@ async function stateMsg(userId, chatIdIn, store, refreshList = false, hint) {
     activeAvailable: act.known
   };
 }
-function describeResult(r, what, language) {
-  const t = translator(language);
+function describeResult(r, what) {
+  const t = message;
   switch (r.status) {
     case "applied": {
       const skip = r.skipped.length ? t("skippedVariables", { count: r.skipped.length }) : "";
@@ -858,13 +898,14 @@ function describeResult(r, what, language) {
   }
 }
 async function doApply(userId, sessionId, store, profile, chatId, activeConnectionId, switched, auto, ed = {}, activeHint, language = "ko") {
-  const t = translator(language);
+  const t = message;
+  const send = localizedSender(language);
   const route = writeRoute(ed, profile.presetId, !!sessionId);
   const editorOpen = route === "editor";
   if (route === "refuse") {
     const text = auto ? t("autoRefused", { name: profile.name }) : t("applyRefused", { name: profile.name });
     if (auto)
-      spindle.toast.warning(text, { userId });
+      spindle.toast.warning(renderMessage(language, text), { userId });
     send({ type: "result", level: "warning", text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
     return;
   }
@@ -875,46 +916,47 @@ async function doApply(userId, sessionId, store, profile, chatId, activeConnecti
   } catch (e) {
     const text = t(auto ? "autoApplyFailed" : "applyFailed", { name: profile.name, error: t("unexpectedError") });
     if (auto)
-      spindle.toast.error(text.slice(0, 500), { userId });
+      spindle.toast.error(renderMessage(language, text).slice(0, 500), { userId });
     send({ type: "result", level: "error", text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
     return;
   }
   await saveStore(userId, store);
-  const d = describeResult(r, t(auto ? "autoApplyAction" : "applyAction", { name: profile.name }), language);
+  const d = describeResult(r, t(auto ? "autoApplyAction" : "applyAction", { name: profile.name }));
   let text = d.text;
   let level = d.level;
   if (r.status === "applied" || r.status === "noop") {
     const w = samplerDisabledWarning(r.preset, profile, language);
     if (w) {
-      text += `
-${w}`;
+      text = joinMessages([text, message("samplerDisabled")], `
+`);
       level = "warning";
     }
   }
   if (r.fallback) {
     if (r.status === "applied") {
-      text += `
-${fallbackNote(r.fallback, Object.keys(profile.variables).length > 0, language)}`;
+      text = joinMessages([text, fallbackMessage(r.fallback, Object.keys(profile.variables).length > 0)], `
+`);
       level = "warning";
     }
   } else if (editorOpen && r.status === "applied" && Object.keys(profile.variables).length)
-    text += `
-${t("editorVariablesNote")}`;
+    text = joinMessages([text, t("editorVariablesNote")], `
+`);
   if ((r.status === "applied" || r.status === "noop") && Object.keys(profile.variables).length) {
     const act = await active(userId, chatId, activeHint);
     if (act.source && act.source !== "none") {
-      text += t("bindingWarning", { source: SOURCE_KEYS[act.source] ? t(SOURCE_KEYS[act.source]) : act.source });
+      text = joinMessages([text, t("bindingWarning", { source: SOURCE_KEYS[act.source] ? t(SOURCE_KEYS[act.source]) : act.source })]);
       level = "warning";
     }
   }
   if (auto && (r.status !== "noop" || level === "warning"))
-    spindle.toast[level](text.slice(0, 500), { userId });
+    spindle.toast[level](renderMessage(language, text).slice(0, 500), { userId });
   send({ type: "result", level, text, presetId: profile.presetId, switchConnection: r.status === "applied" || r.status === "noop" ? target : undefined }, userId, auto ? undefined : sessionId);
   send(await stateMsg(userId, chatId, store, false, activeHint), userId, sessionId);
 }
 async function handle(msg, userId, sessionId) {
   const language = msg.language === "en" ? "en" : "ko";
-  const t = translator(language);
+  const t = message;
+  const send = localizedSender(language);
   switch (msg.type) {
     case "load":
       send(await stateMsg(userId, msg.chatId, undefined, true, msg.activePresetId), userId, sessionId);
@@ -976,7 +1018,7 @@ async function handle(msg, userId, sessionId) {
         const act = await active(userId, msg.chatId, msg.activePresetId);
         if (!act.known) {
           if (store.profiles.some((p) => p.autoConnectionIds.includes(msg.connectionId))) {
-            spindle.toast.warning(t("autoActiveUnknown"), { userId });
+            spindle.toast.warning(renderMessage(language, t("autoActiveUnknown")), { userId });
           }
           return;
         }
@@ -1006,11 +1048,11 @@ async function handle(msg, userId, sessionId) {
           return;
         }
         await saveStore(userId, store);
-        const d = describeResult(r, t("undoAction"), language);
+        const d = describeResult(r, t("undoAction"));
         const hasVars = !!backup && Object.keys(backup.variables).length > 0;
-        const text = r.status === "applied" ? t("undoSuccess", { note: r.fallback ? `
-${fallbackNote(r.fallback, hasVars, language)}` : editorOpen && hasVars ? `
-${t("editorVariablesNote")}` : "" }) : r.status === "missing" && !backup ? t("noBackup") : d.text;
+        const text = r.status === "applied" ? t("undoSuccess", { note: r.fallback ? joinMessages([`
+`, fallbackMessage(r.fallback, hasVars)]) : editorOpen && hasVars ? joinMessages([`
+`, t("editorVariablesNote")]) : "" }) : r.status === "missing" && !backup ? t("noBackup") : d.text;
         const ok = r.status === "applied" || r.status === "noop";
         send({ type: "result", level: r.fallback && r.status === "applied" ? "warning" : d.level, text, presetId: msg.presetId, switchConnection: ok && backup?.connectionSwitchedTo ? backup.connectionBefore : undefined }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
@@ -1025,7 +1067,7 @@ ${t("editorVariablesNote")}` : "" }) : r.status === "missing" && !backup ? t("no
       if (msg.ok)
         w.resolve({ changed: msg.changed === true, prev: msg.prev ?? {} });
       else
-        w.reject(new Error(msg.error || t("editorReplyFailed")));
+        w.reject(msg.errorMessage ? new LocalizedError(msg.errorMessage, language) : msg.error ? new Error(msg.error) : new LocalizedError(t("editorReplyFailed"), language));
       return;
     }
     case "export": {
@@ -1040,7 +1082,7 @@ ${t("editorVariablesNote")}` : "" }) : r.status === "missing" && !backup ? t("no
         if (r.added)
           await saveStore(userId, store);
         const text = r.added ? t("importCount", { count: r.added }) : t("importEmpty");
-        send({ type: "result", level: r.errors.length ? "warning" : "info", text: [text, ...r.errors].join(`
+        send({ type: "result", level: r.errors.length ? "warning" : "info", text: joinMessages([text, ...r.errorMessages], `
 `) }, userId, sessionId);
         send(await stateMsg(userId, null, store), userId, sessionId);
       });
@@ -1068,9 +1110,11 @@ spindle.onFrontendMessage((payload, userId, frontendSessionId) => {
     return;
   handle(payload, userId, frontendSessionId).catch((e) => {
     spindle.log.error(`[setting-profiles] ${payload.type}: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
-    const t = translator(payload.language === "en" ? "en" : "ko");
+    const language = payload.language === "en" ? "en" : "ko";
+    const t = message;
+    const send = localizedSender(language);
     const text = t("unexpectedError");
-    spindle.toast.error(text, { userId });
+    spindle.toast.error(renderMessage(language, text), { userId });
     send({ type: "result", level: "error", text, refresh: false }, userId, frontendSessionId);
   });
 });

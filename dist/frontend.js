@@ -2,6 +2,8 @@
 var messages = {
   ko: {
     title: "설정 프로필",
+    shortName: "세팅",
+    fieldError: "{label}: {error}",
     profileKeyword: "profile",
     profiles: "프로필",
     description: "모델별 샘플러·프롬프트 변수·연결 프로필",
@@ -132,6 +134,8 @@ var messages = {
   },
   en: {
     title: "Setting Profiles",
+    shortName: "Settings P.",
+    fieldError: "{label}: {error}",
     profileKeyword: "profile",
     profiles: "Profiles",
     description: "Sampler, Prompt Variables, and Connection profiles for each model",
@@ -282,7 +286,75 @@ function resolveLanguage(setting, hostLanguage = readHostLanguage(), browserLang
 function translate(language, key, params = {}) {
   return messages[language][key].replace(/\{(\w+)\}/g, (match, name) => Object.hasOwn(params, name) ? String(params[name]) : match);
 }
-var translator = (language) => (key, params) => translate(language, key, params);
+var message = (key, params) => ({ key, params });
+function renderMessage(language, value) {
+  if (typeof value === "string")
+    return value;
+  if ("parts" in value)
+    return value.parts.map((part) => renderMessage(language, part)).join(value.separator);
+  const params = Object.fromEntries(Object.entries(value.params ?? {}).map(([key, param]) => [
+    key,
+    typeof param === "number" ? param : renderMessage(language, param)
+  ]));
+  return translate(language, value.key, params);
+}
+
+class LocalizedError extends Error {
+  localizedMessage;
+  constructor(localizedMessage, language = "ko") {
+    super(renderMessage(language, localizedMessage));
+    this.localizedMessage = localizedMessage;
+  }
+}
+var errorMessage = (error) => error instanceof LocalizedError ? error.localizedMessage : message("unexpectedError");
+
+// src/language-events.ts
+function watchHostLanguage(locale, update) {
+  let timers = [];
+  let disposed = false;
+  const cancelRetries = () => {
+    timers.forEach(clearTimeout);
+    timers = [];
+  };
+  const onLocale = () => {
+    if (disposed)
+      return;
+    cancelRetries();
+    const before = readHostLanguage();
+    timers = [0, 150, 500].map((delay) => setTimeout(() => {
+      if (disposed)
+        return;
+      update();
+      if (readHostLanguage() !== before || delay === 500)
+        cancelRetries();
+    }, delay));
+  };
+  let offLocale;
+  try {
+    offLocale = locale?.subscribe?.(onLocale);
+  } catch {}
+  const onStorage = (event) => {
+    if (event.key === HOST_LANGUAGE_KEY || event.key === null)
+      update();
+  };
+  const onVisible = () => {
+    if (document.visibilityState === "visible")
+      update();
+  };
+  window.addEventListener("storage", onStorage);
+  window.addEventListener("focus", update);
+  window.addEventListener("languagechange", update);
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    disposed = true;
+    cancelRetries();
+    offLocale?.();
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener("focus", update);
+    window.removeEventListener("languagechange", update);
+    document.removeEventListener("visibilitychange", onVisible);
+  };
+}
 
 // src/shared.ts
 var SAMPLER_KEYS = [
@@ -441,11 +513,11 @@ var btn = (label, onClick, cls = "", disabled = false) => el("button", { type: "
 var ICON = '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>';
 var valueToText = (v) => v === undefined || v === null ? "" : typeof v === "string" ? v : typeof v === "number" || typeof v === "boolean" ? String(v) : JSON.stringify(v);
 function parseVariable(type, text, language = "ko") {
-  const t = translator(language);
+  const t = message;
   if (type === "number" || type === "slider") {
     const n = Number(text);
     if (text.trim() === "" || !Number.isFinite(n))
-      throw new Error(t("notNumber"));
+      throw new LocalizedError(t("notNumber"), language);
     return n;
   }
   if (type === "switch")
@@ -455,34 +527,34 @@ function parseVariable(type, text, language = "ko") {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error(t("invalidVariableJson"));
+    throw new LocalizedError(t("invalidVariableJson"), language);
   }
 }
 function checkVariableShape(type, options, v, language = "ko") {
-  const t = translator(language);
+  const t = message;
   if (type === "range") {
     if (!Array.isArray(v) || v.length !== 2 || v.some((x) => typeof x !== "number" || !Number.isFinite(x)))
-      throw new Error(t("rangeShape"));
+      throw new LocalizedError(t("rangeShape"), language);
     if (v[0] > v[1])
-      throw new Error(t("rangeOrder"));
+      throw new LocalizedError(t("rangeOrder"), language);
   } else if (type === "multiselect") {
     if (!Array.isArray(v) || v.some((x) => typeof x !== "string"))
-      throw new Error(t("multiselectShape"));
+      throw new LocalizedError(t("multiselectShape"), language);
     const ids = new Set(options.map((o) => o.id));
     const bad = v.filter((x) => !ids.has(x));
     if (ids.size && bad.length)
-      throw new Error(t("missingOptions", { options: bad.join(", ") }));
+      throw new LocalizedError(t("missingOptions", { options: bad.join(", ") }), language);
   }
 }
 function parseSampler(key, text, language = "ko") {
-  const t = translator(language);
+  const t = message;
   if (BOOLEAN_SAMPLER_KEYS.includes(key))
     return text === "true";
   if (text.trim() === "")
     return null;
   const n = Number(text);
   if (!Number.isFinite(n))
-    throw new Error(t("notNumber"));
+    throw new LocalizedError(t("notNumber"), language);
   return n;
 }
 function setup(ctx) {
@@ -494,7 +566,7 @@ function setup(ctx) {
   let selected = null;
   let detail = null;
   let form = null;
-  let status = "";
+  let status = null;
   let statusLevel = "info";
   let conns = [];
   let suppressUntil = 0;
@@ -545,7 +617,7 @@ function setup(ctx) {
       else
         api?.setActive?.(id);
     } catch (e) {
-      show("error", t("switchFailed", { error: t("unexpectedError") }));
+      show("error", message("switchFailed", { error: message("unexpectedError") }));
     }
   }
   let offSub = null;
@@ -617,7 +689,7 @@ function setup(ctx) {
     const pe = editorApi();
     const s = pe?.getState();
     if (!pe?.updatePreset || !pe.flush || !s?.open || s.presetId !== presetId || !s.preset)
-      throw new Error(t("editorClosed"));
+      throw new LocalizedError(message("editorClosed"), language);
     let out = null;
     pe.updatePreset((d) => {
       const r = samplerPatch(d.parameters?.samplerOverrides, patch);
@@ -627,7 +699,7 @@ function setup(ctx) {
       return { ...d, parameters: { ...d.parameters, samplerOverrides: r.next } };
     }, { immediate: true });
     if (!out)
-      throw new Error(t("editorRejected"));
+      throw new LocalizedError(message("editorRejected"), language);
     await pe.flush();
     return out;
   }
@@ -639,7 +711,7 @@ function setup(ctx) {
   const tab = ctx.ui.registerDrawerTab({
     id: "setting-profiles",
     title: t("title"),
-    shortName: t("profiles"),
+    shortName: t("shortName"),
     description: `${translate("ko", "description")} / ${translate("en", "description")}`,
     keywords: ["ko", "en"].flatMap((lang) => ["profileKeyword", "profiles", "sampler", "variables", "perModel"].map((key) => translate(lang, key))),
     iconSvg: ICON
@@ -654,9 +726,12 @@ function setup(ctx) {
   });
   const offInputClick = inputAction?.onClick(() => tab.activate());
   function updateLanguage() {
-    language = resolveLanguage(languageSetting);
+    const next = resolveLanguage(languageSetting);
+    if (next === language)
+      return;
+    language = next;
     tab.setTitle(t("title"));
-    tab.setShortName(t("profiles"));
+    tab.setShortName(t("shortName"));
     inputAction?.setLabel(t("title"));
     inputAction?.setSubtitle(t("description"));
     render();
@@ -731,7 +806,7 @@ function setup(ctx) {
     if (!f)
       return;
     if (!f.name.trim()) {
-      show("error", t("nameRequired"));
+      show("error", message("nameRequired"));
       return;
     }
     try {
@@ -742,7 +817,7 @@ function setup(ctx) {
           try {
             sampler[k] = parseSampler(k, r.text, language);
           } catch (e) {
-            throw new Error(`${t(SAMPLER_LABEL_KEYS[k])}: ${e.message}`);
+            throw new LocalizedError(message("fieldError", { label: message(SAMPLER_LABEL_KEYS[k]), error: errorMessage(e) }), language);
           }
         }
       }
@@ -757,7 +832,7 @@ function setup(ctx) {
           v = parseVariable(r.info.type, r.text, language);
           checkVariableShape(r.info.type, r.info.options, v, language);
         } catch (e) {
-          throw new Error(`${r.info.label}: ${e.message}`);
+          throw new LocalizedError(message("fieldError", { label: r.info.label, error: errorMessage(e) }), language);
         }
         (variables[r.info.blockId] ??= {})[r.info.name] = v;
       }
@@ -776,10 +851,10 @@ function setup(ctx) {
         }
       });
       form = null;
-      status = "";
+      status = null;
       render();
     } catch (e) {
-      show("error", e instanceof Error ? e.message : String(e));
+      show("error", errorMessage(e));
     }
   }
   function renderForm(f) {
@@ -914,7 +989,7 @@ function setup(ctx) {
     kids.push(el("div", { class: "sp-field" }, [el("label", { class: "sp-h" }, [t("targetPreset")]), sel]));
     kids.push(el("div", { class: "sp-muted" }, [t("scopeHint")]));
     if (status)
-      kids.push(el("div", { class: `sp-status sp-${statusLevel}` }, [status]));
+      kids.push(el("div", { class: `sp-status sp-${statusLevel}` }, [renderMessage(language, status)]));
     const mine = st.profiles.filter((p) => p.presetId === selected);
     const backup = selected ? st.backups[selected] : undefined;
     kids.push(el("div", { class: "sp-row" }, [
@@ -964,10 +1039,10 @@ function setup(ctx) {
       if (!f)
         return;
       if (f.size > 2 * 1024 * 1024) {
-        show("error", t("fileTooLarge"));
+        show("error", message("fileTooLarge"));
         return;
       }
-      f.text().then((text) => toBackend({ type: "import", text })).catch(() => show("error", t("unexpectedError")));
+      f.text().then((text) => toBackend({ type: "import", text })).catch(() => show("error", message("unexpectedError")));
     } });
     kids.push(el("div", { class: "sp-row" }, [
       btn(t("export"), () => toBackend({ type: "export" })),
@@ -1005,12 +1080,12 @@ function setup(ctx) {
         if (msg.presetId === selected) {
           detail = msg.detail;
           if (!msg.detail)
-            status = t("presetReadFailed");
+            status = message("presetReadFailed");
           render();
         }
         return;
       case "result":
-        status = msg.text;
+        status = msg.message ?? msg.text;
         statusLevel = msg.level;
         if (msg.refresh !== false && (msg.presetId === selected || msg.presetId === undefined)) {
           if (selected)
@@ -1020,7 +1095,7 @@ function setup(ctx) {
         switchConn(msg.switchConnection);
         return;
       case "editor_patch":
-        runEditorPatch(msg.presetId, { set: msg.set, remove: msg.remove }).then((r) => toBackend({ type: "editor_reply", reqId: msg.reqId, ok: true, changed: r.changed, prev: r.prev }), (e) => toBackend({ type: "editor_reply", reqId: msg.reqId, ok: false, error: e instanceof Error ? e.message : String(e) }));
+        runEditorPatch(msg.presetId, { set: msg.set, remove: msg.remove }).then((r) => toBackend({ type: "editor_reply", reqId: msg.reqId, ok: true, changed: r.changed, prev: r.prev }), (e) => toBackend({ type: "editor_reply", reqId: msg.reqId, ok: false, error: e instanceof Error ? e.message : String(e), errorMessage: e instanceof LocalizedError ? e.localizedMessage : undefined }));
         return;
       case "export": {
         const url = URL.createObjectURL(new Blob([msg.text], { type: "application/json" }));
@@ -1034,16 +1109,7 @@ function setup(ctx) {
     }
   });
   const locale = ctx.locale;
-  let offLocale;
-  try {
-    offLocale = locale?.subscribe?.(() => updateLanguage());
-  } catch {}
-  const onStorage = (event) => {
-    if (event.key === HOST_LANGUAGE_KEY || event.key === null)
-      updateLanguage();
-  };
-  window.addEventListener("storage", onStorage);
-  window.addEventListener("languagechange", updateLanguage);
+  const offLanguage = watchHostLanguage(locale, updateLanguage);
   render();
   reload();
   return () => {
@@ -1051,9 +1117,7 @@ function setup(ctx) {
     offActivate();
     offSub?.();
     offActive?.();
-    offLocale?.();
-    window.removeEventListener("storage", onStorage);
-    window.removeEventListener("languagechange", updateLanguage);
+    offLanguage();
     offInputClick?.();
     inputAction?.destroy();
     if (debounce)

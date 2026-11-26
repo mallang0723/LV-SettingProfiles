@@ -1,7 +1,8 @@
 // Frontend: a drawer tab to save, edit, apply and undo setting profiles.
 // Mobile first (360px). No secure-context-only APIs (no crypto.randomUUID, no clipboard API).
 
-import { HOST_LANGUAGE_KEY, normalizeLanguage, resolveLanguage, translate, translator, type Language, type LanguageSetting, type MessageKey, type Params } from './i18n';
+import { normalizeLanguage, resolveLanguage, translate, message, renderMessage, LocalizedError, errorMessage, type LocalizedMessage, type Language, type LanguageSetting, type MessageKey, type Params } from './i18n';
+import { watchHostLanguage } from './language-events';
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types';
 import { loomBlocksRejection, samplerPatch, samplerPrechecked, variablePrechecked } from './core';
 import {
@@ -74,37 +75,37 @@ export const valueToText = (v: Json | undefined): string =>
   v === undefined || v === null ? '' : typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : JSON.stringify(v);
 
 export function parseVariable(type: string, text: string, language: Language = 'ko'): Json {
-  const t = translator(language);
+  const t = message;
   if (type === 'number' || type === 'slider') {
     const n = Number(text);
-    if (text.trim() === '' || !Number.isFinite(n)) throw new Error(t('notNumber'));
+    if (text.trim() === '' || !Number.isFinite(n)) throw new LocalizedError(t('notNumber'), language);
     return n;
   }
   if (type === 'switch') return text === '1' || text === 'true' ? 1 : 0;
   if (type === 'select' || type === 'text' || type === 'textarea') return text;
-  try { return JSON.parse(text) as Json; } catch { throw new Error(t('invalidVariableJson')); }
+  try { return JSON.parse(text) as Json; } catch { throw new LocalizedError(t('invalidVariableJson'), language); }
 }
 
 /** Shape check for the JSON-typed variables, so a typo does not store a value the host would reject or ignore. */
 export function checkVariableShape(type: string, options: Array<{ id: string }>, v: Json, language: Language = 'ko'): void {
-  const t = translator(language);
+  const t = message;
   if (type === 'range') {
-    if (!Array.isArray(v) || v.length !== 2 || v.some((x) => typeof x !== 'number' || !Number.isFinite(x))) throw new Error(t('rangeShape'));
-    if ((v[0] as number) > (v[1] as number)) throw new Error(t('rangeOrder'));
+    if (!Array.isArray(v) || v.length !== 2 || v.some((x) => typeof x !== 'number' || !Number.isFinite(x))) throw new LocalizedError(t('rangeShape'), language);
+    if ((v[0] as number) > (v[1] as number)) throw new LocalizedError(t('rangeOrder'), language);
   } else if (type === 'multiselect') {
-    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new Error(t('multiselectShape'));
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new LocalizedError(t('multiselectShape'), language);
     const ids = new Set(options.map((o) => o.id));
     const bad = (v as string[]).filter((x) => !ids.has(x));
-    if (ids.size && bad.length) throw new Error(t('missingOptions', { options: bad.join(', ') }));
+    if (ids.size && bad.length) throw new LocalizedError(t('missingOptions', { options: bad.join(', ') }), language);
   }
 }
 
 export function parseSampler(key: string, text: string, language: Language = 'ko'): Json {
-  const t = translator(language);
+  const t = message;
   if (BOOLEAN_SAMPLER_KEYS.includes(key)) return text === 'true';
   if (text.trim() === '') return null;
   const n = Number(text);
-  if (!Number.isFinite(n)) throw new Error(t('notNumber'));
+  if (!Number.isFinite(n)) throw new LocalizedError(t('notNumber'), language);
   return n;
 }
 
@@ -117,7 +118,7 @@ export function setup(ctx: SpindleFrontendContext) {
   let selected: string | null = null;
   let detail: PresetDetail | null = null;
   let form: Form | null = null;
-  let status = '';
+  let status: LocalizedMessage | null = null;
   let statusLevel: 'info' | 'warning' | 'error' = 'info';
   let conns: ConnItem[] = [];
   let suppressUntil = 0;
@@ -166,7 +167,7 @@ export function setup(ctx: SpindleFrontendContext) {
       if (typeof api?.setActiveAcknowledged === 'function') await api.setActiveAcknowledged(id);
       else api?.setActive?.(id);
     } catch (e) {
-      show('error', t('switchFailed', { error: t('unexpectedError') }));
+      show('error', message('switchFailed', { error: message('unexpectedError') }));
     }
   }
 
@@ -231,7 +232,7 @@ export function setup(ctx: SpindleFrontendContext) {
   async function runEditorPatch(presetId: string, patch: SamplerPatch): Promise<{ changed: boolean; prev: Record<string, Prev> }> {
     const pe = editorApi();
     const s = pe?.getState();
-    if (!pe?.updatePreset || !pe.flush || !s?.open || s.presetId !== presetId || !s.preset) throw new Error(t('editorClosed'));
+    if (!pe?.updatePreset || !pe.flush || !s?.open || s.presetId !== presetId || !s.preset) throw new LocalizedError(message('editorClosed'), language);
     let out: { changed: boolean; prev: Record<string, Prev> } | null = null;
     pe.updatePreset((d) => {
       const r = samplerPatch(d.parameters?.samplerOverrides, patch);
@@ -239,18 +240,18 @@ export function setup(ctx: SpindleFrontendContext) {
       if (!r.changed) return d;
       return { ...d, parameters: { ...d.parameters, samplerOverrides: r.next } };
     }, { immediate: true });
-    if (!out) throw new Error(t('editorRejected'));
+    if (!out) throw new LocalizedError(message('editorRejected'), language);
     await pe.flush();
     return out;
   }
 
-  function show(level: 'info' | 'warning' | 'error', text: string): void {
+  function show(level: 'info' | 'warning' | 'error', text: LocalizedMessage): void {
     status = text; statusLevel = level; render();
   }
 
   // ---- panel ----
   const tab = ctx.ui.registerDrawerTab({
-    id: 'setting-profiles', title: t('title'), shortName: t('profiles'),
+    id: 'setting-profiles', title: t('title'), shortName: t('shortName'),
     // Description/keywords have no update API; bilingual metadata remains searchable in either language.
     // Omit headerTitle so the host header follows setTitle.
     description: `${translate('ko', 'description')} / ${translate('en', 'description')}`,
@@ -266,9 +267,11 @@ export function setup(ctx: SpindleFrontendContext) {
   const offInputClick = inputAction?.onClick(() => tab.activate());
 
   function updateLanguage(): void {
-    language = resolveLanguage(languageSetting);
+    const next = resolveLanguage(languageSetting);
+    if (next === language) return;
+    language = next;
     tab.setTitle(t('title'));
-    tab.setShortName(t('profiles'));
+    tab.setShortName(t('shortName'));
     inputAction?.setLabel(t('title'));
     inputAction?.setSubtitle(t('description'));
     render();
@@ -328,19 +331,19 @@ export function setup(ctx: SpindleFrontendContext) {
 
   function saveForm(): void {
     const f = form; if (!f) return;
-    if (!f.name.trim()) { show('error', t('nameRequired')); return; }
+    if (!f.name.trim()) { show('error', message('nameRequired')); return; }
     try {
       const sampler: Record<string, Json> = {};
       for (const k of SAMPLER_KEYS) {
         const r = f.sampler[k]!;
-        if (r.on) { try { sampler[k] = parseSampler(k, r.text, language); } catch (e) { throw new Error(`${t(SAMPLER_LABEL_KEYS[k])}: ${(e as Error).message}`); } }
+        if (r.on) { try { sampler[k] = parseSampler(k, r.text, language); } catch (e) { throw new LocalizedError(message('fieldError', { label: message(SAMPLER_LABEL_KEYS[k]), error: errorMessage(e) }), language); } }
       }
       const variables: Record<string, Record<string, Json>> = {};
       for (const [b, bucket] of Object.entries(f.orphans)) variables[b] = { ...bucket };
       for (const r of f.vars) {
         if (!r.on) continue;
         let v: Json;
-        try { v = parseVariable(r.info.type, r.text, language); checkVariableShape(r.info.type, r.info.options, v, language); } catch (e) { throw new Error(`${r.info.label}: ${(e as Error).message}`); }
+        try { v = parseVariable(r.info.type, r.text, language); checkVariableShape(r.info.type, r.info.options, v, language); } catch (e) { throw new LocalizedError(message('fieldError', { label: r.info.label, error: errorMessage(e) }), language); }
         (variables[r.info.blockId] ??= {})[r.info.name] = v;
       }
       const auto = [...f.auto].filter((id) => id === f.connectionId || conns.some((c) => c.id === id));
@@ -352,10 +355,10 @@ export function setup(ctx: SpindleFrontendContext) {
         },
       });
       form = null;
-      status = '';
+      status = null;
       render();
     } catch (e) {
-      show('error', e instanceof Error ? e.message : String(e));
+      show('error', errorMessage(e));
     }
   }
 
@@ -463,7 +466,7 @@ export function setup(ctx: SpindleFrontendContext) {
     kids.push(el('div', { class: 'sp-field' }, [el('label', { class: 'sp-h' }, [t('targetPreset')]), sel]));
     kids.push(el('div', { class: 'sp-muted' }, [t('scopeHint')]));
 
-    if (status) kids.push(el('div', { class: `sp-status sp-${statusLevel}` }, [status]));
+    if (status) kids.push(el('div', { class: `sp-status sp-${statusLevel}` }, [renderMessage(language, status)]));
 
     const mine = st.profiles.filter((p) => p.presetId === selected);
     const backup = selected ? st.backups[selected] : undefined;
@@ -504,8 +507,8 @@ export function setup(ctx: SpindleFrontendContext) {
     const file = el('input', { type: 'file', accept: '.json,application/json', style: 'display:none', onChange: (e: Event) => {
       const f = (e.target as HTMLInputElement).files?.[0];
       if (!f) return;
-      if (f.size > 2 * 1024 * 1024) { show('error', t('fileTooLarge')); return; }
-      void f.text().then((text) => toBackend({ type: 'import', text })).catch(() => show('error', t('unexpectedError')));
+      if (f.size > 2 * 1024 * 1024) { show('error', message('fileTooLarge')); return; }
+      void f.text().then((text) => toBackend({ type: 'import', text })).catch(() => show('error', message('unexpectedError')));
     } });
     kids.push(el('div', { class: 'sp-row' }, [
       btn(t('export'), () => toBackend({ type: 'export' })),
@@ -538,10 +541,10 @@ export function setup(ctx: SpindleFrontendContext) {
         return;
       }
       case 'detail':
-        if (msg.presetId === selected) { detail = msg.detail; if (!msg.detail) status = t('presetReadFailed'); render(); }
+        if (msg.presetId === selected) { detail = msg.detail; if (!msg.detail) status = message('presetReadFailed'); render(); }
         return;
       case 'result':
-        status = msg.text; statusLevel = msg.level;
+        status = msg.message ?? msg.text; statusLevel = msg.level;
         if (msg.refresh !== false && (msg.presetId === selected || msg.presetId === undefined)) {
           if (selected) toBackend({ type: 'detail', presetId: selected });
         }
@@ -551,7 +554,7 @@ export function setup(ctx: SpindleFrontendContext) {
       case 'editor_patch':
         runEditorPatch(msg.presetId, { set: msg.set, remove: msg.remove }).then(
           (r) => toBackend({ type: 'editor_reply', reqId: msg.reqId, ok: true, changed: r.changed, prev: r.prev }),
-          (e) => toBackend({ type: 'editor_reply', reqId: msg.reqId, ok: false, error: e instanceof Error ? e.message : String(e) }),
+          (e) => toBackend({ type: 'editor_reply', reqId: msg.reqId, ok: false, error: e instanceof Error ? e.message : String(e), errorMessage: e instanceof LocalizedError ? e.localizedMessage : undefined }),
         );
         return;
       case 'export': {
@@ -566,20 +569,12 @@ export function setup(ctx: SpindleFrontendContext) {
 
   // Optional on older hosts. The callback's locale value is intentionally ignored: ko is mapped to en.
   const locale = (ctx as unknown as { locale?: { subscribe?: (listener: () => void) => () => void } }).locale;
-  let offLocale: (() => void) | undefined;
-  try { offLocale = locale?.subscribe?.(() => updateLanguage()); } catch { /* older host */ }
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === HOST_LANGUAGE_KEY || event.key === null) updateLanguage();
-  };
-  window.addEventListener('storage', onStorage);
-  window.addEventListener('languagechange', updateLanguage);
+  const offLanguage = watchHostLanguage(locale, updateLanguage);
   render();
   reload();
 
   return () => {
-    offBackend(); offActivate(); offSub?.(); offActive?.(); offLocale?.();
-    window.removeEventListener('storage', onStorage);
-    window.removeEventListener('languagechange', updateLanguage);
+    offBackend(); offActivate(); offSub?.(); offActive?.(); offLanguage();
     offInputClick?.(); inputAction?.destroy();
     if (debounce) clearTimeout(debounce);
     tab.destroy(); removeStyle(); ctx.dom.cleanup();
