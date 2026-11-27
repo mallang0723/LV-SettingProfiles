@@ -1,4 +1,12 @@
 // @bun
+// src/diagnostics.ts
+function operationError(operation, error) {
+  const name = error instanceof Error ? error.name : "Error";
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "Non-Error exception";
+  const redact = (text) => text.replace(/\{[\s\S]*|\[(?=\s*["{])[\s\S]*/g, "[data redacted]").replace(/\b(?:https?|wss?):\/\/[^\s"'<>]+/gi, "[URL redacted]").replace(/\b(?:Bearer|Basic)\s+[^\s,;"']+/gi, "[credentials redacted]").replace(/\b(?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|token|secret|password|authorization|cookie)\b\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi, "[credentials redacted]").replace(/\bsk-[a-z0-9_-]+\b/gi, "[key redacted]").replace(/\beyJ[a-z0-9_-]+\.[a-z0-9_-]+\.[a-z0-9_-]+\b/gi, "[token redacted]").replace(/(?:\/home\/|\/Users\/)[^\s"']+/g, "[path redacted]").replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi, "[address redacted]").replace(/[\r\n\t]+/g, " ").slice(0, 500);
+  return `[setting-profiles] ${operation}: ${redact(name)}: ${redact(message)}`;
+}
+
 // src/i18n.ts
 var messages = {
   ko: {
@@ -914,6 +922,7 @@ async function doApply(userId, sessionId, store, profile, chatId, activeConnecti
   try {
     r = editorOpen ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId, language), ed.editorBlocksReject) : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
   } catch (e) {
+    spindle.log.error(operationError(auto ? "auto_apply" : "apply", e));
     const text = t(auto ? "autoApplyFailed" : "applyFailed", { name: profile.name, error: t("unexpectedError") });
     if (auto)
       spindle.toast.error(renderMessage(language, text).slice(0, 500), { userId });
@@ -1044,6 +1053,7 @@ async function handle(msg, userId, sessionId) {
         try {
           r = editorOpen ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId, language), msg.editorBlocksReject) : await undoBackup(hostFor(userId), store, msg.presetId);
         } catch (e) {
+          spindle.log.error(operationError("undo", e));
           send({ type: "result", level: "error", text: t("undoFailed", { error: t("unexpectedError") }), presetId: msg.presetId }, userId, sessionId);
           return;
         }
@@ -1109,7 +1119,7 @@ spindle.onFrontendMessage((payload, userId, frontendSessionId) => {
   if (!payload || typeof payload !== "object" || typeof payload.type !== "string")
     return;
   handle(payload, userId, frontendSessionId).catch((e) => {
-    spindle.log.error(`[setting-profiles] ${payload.type}: ${e instanceof Error ? e.stack ?? e.message : String(e)}`);
+    spindle.log.error(operationError("backend_request", e));
     const language = payload.language === "en" ? "en" : "ko";
     const t = message;
     const send = localizedSender(language);

@@ -1,6 +1,7 @@
 // Frontend: a drawer tab to save, edit, apply and undo setting profiles.
 // Mobile first (360px). No secure-context-only APIs (no crypto.randomUUID, no clipboard API).
 
+import { operationError } from './diagnostics';
 import { normalizeLanguage, resolveLanguage, translate, message, renderMessage, LocalizedError, errorMessage, type LocalizedMessage, type Language, type LanguageSetting, type MessageKey, type Params } from './i18n';
 import { watchHostLanguage } from './language-events';
 import type { SpindleFrontendContext } from 'lumiverse-spindle-types';
@@ -167,6 +168,7 @@ export function setup(ctx: SpindleFrontendContext) {
       if (typeof api?.setActiveAcknowledged === 'function') await api.setActiveAcknowledged(id);
       else api?.setActive?.(id);
     } catch (e) {
+      console.warn(operationError('connection_switch', e));
       show('error', message('switchFailed', { error: message('unexpectedError') }));
     }
   }

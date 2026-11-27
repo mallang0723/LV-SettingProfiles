@@ -6,6 +6,7 @@ import { FakeHost } from './fake-host';
 test('backend persists language per user and localizes results, imports, auto-apply toasts and failures', async () => {
   const stored = new Map<string, Store>();
   const hosts = new Map<string, FakeHost>();
+  const logs: string[] = [];
   const toasts: Array<{ user: string; text: string }> = [];
   let handler: (m: ToBackend, user: string, session: string) => void = () => {};
   const waiters = new Map<string, (m: ToFrontend) => void>();
@@ -27,7 +28,7 @@ test('backend persists language per user and localizes results, imports, auto-ap
       update: async (id: string, input: Parameters<FakeHost['update']>[1], user: string) => host(user).update(id, input),
     },
     toast: { info: toast, warning: toast, error: toast },
-    log: { error() {} },
+    log: { error(text: string) { logs.push(text); } },
     sendToFrontend: (m: ToFrontend, user: string) => waiters.get(user)?.(m),
     onFrontendMessage: (cb: typeof handler) => { handler = cb; },
   } });
@@ -70,6 +71,15 @@ test('backend persists language per user and localizes results, imports, auto-ap
     await request('account-a', { type: 'set_settings', settings: { autoApply: false }, language: 'en' });
     expect(stored.get('account-a')!.settings.language).toBe('en');
     failRead = true;
+    const profileId = stored.get('account-a')!.profiles[0]!.id;
+    const applyFailure = await request('account-a', { type: 'apply', id: profileId, chatId: null, activeConnectionId: null, switched: false, language: 'en' }, 'result');
+    expect(logs.at(-1)).toBe('[setting-profiles] apply: Error: host failure');
+    expect(resultText(applyFailure)).toContain(messages.en.unexpectedError);
+    expect(resultText(applyFailure)).not.toContain('host failure');
+    const undoFailure = await request('account-a', { type: 'undo', presetId: 'p1', language: 'en' }, 'result');
+    expect(logs.at(-1)).toBe('[setting-profiles] undo: Error: host failure');
+    expect(resultText(undoFailure)).toContain(messages.en.unexpectedError);
+    expect(resultText(undoFailure)).not.toContain('host failure');
     const failure = await request('account-a', { type: 'detail', presetId: 'p1', language: 'en' }, 'result');
     expect(resultText(failure)).toBe(messages.en.unexpectedError);
     expect(failure[0]!.type === 'result' && failure[0]!.refresh).toBe(false);

@@ -1,5 +1,6 @@
 // Backend worker: stores profiles per user and applies them to presets through the presets permission.
 
+import { operationError } from './diagnostics';
 import { message, joinMessages, renderMessage, LocalizedError, type LocalizedMessage, type Language, type MessageKey } from './i18n';
 declare const spindle: import('lumiverse-spindle-types').SpindleAPI;
 
@@ -153,6 +154,7 @@ async function doApply(
       ? await applyProfileViaEditor(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target }, askEditor(userId, sessionId, profile.presetId, language), ed.editorBlocksReject)
       : await applyProfile(hostFor(userId), store, profile, { before: activeConnectionId, switchedTo: target });
   } catch (e) {
+    spindle.log.error(operationError(auto ? 'auto_apply' : 'apply', e));
     const text = t(auto ? 'autoApplyFailed' : 'applyFailed', { name: profile.name, error: t('unexpectedError') });
     if (auto) spindle.toast.error(renderMessage(language, text).slice(0, 500), { userId });
     send({ type: 'result', level: 'error', text, presetId: profile.presetId }, userId, auto ? undefined : sessionId);
@@ -280,6 +282,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
             ? await undoBackupViaEditor(hostFor(userId), store, msg.presetId, askEditor(userId, sessionId, msg.presetId, language), msg.editorBlocksReject)
             : await undoBackup(hostFor(userId), store, msg.presetId);
         } catch (e) {
+          spindle.log.error(operationError('undo', e));
           send({ type: 'result', level: 'error', text: t('undoFailed', { error: t('unexpectedError') }), presetId: msg.presetId }, userId, sessionId);
           return;
         }
@@ -341,7 +344,7 @@ async function handle(msg: ToBackend, userId: string, sessionId: string | undefi
 spindle.onFrontendMessage((payload, userId, frontendSessionId) => {
   if (!payload || typeof payload !== 'object' || typeof (payload as { type?: unknown }).type !== 'string') return;
   handle(payload as ToBackend, userId, frontendSessionId).catch((e) => {
-    spindle.log.error(`[setting-profiles] ${(payload as { type: string }).type}: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
+    spindle.log.error(operationError('backend_request', e));
     const language = (payload as ToBackend).language === 'en' ? 'en' : 'ko';
     const t = message;
     const send = localizedSender(language);

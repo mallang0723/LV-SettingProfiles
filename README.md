@@ -1,6 +1,6 @@
 # Setting Profiles for Lumiverse · 설정 프로필
 
-Version **0.2.0-v2** · [한국어](#한국어)
+Version **0.2.0-v3** · [한국어](#한국어)
 
 Use one [Lumiverse](https://lumiverse.chat/) preset with different models: save selected sampler settings and prompt-variable values as profiles, optionally attach a connection, and apply them together. Keep your prompt structure without duplicating presets or editing blocks and regex scripts.
 
@@ -100,6 +100,8 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 
 ## Changelog
 
+- **0.2.0-v3** — Preserve apply/undo/Connection-switch error diagnostics in logs while keeping translated UI messages; exclude attached data and redact credentials.
+
 - **0.2.0-v2** — Fix live Auto language timing, refresh on focus/visibility, retranslate existing status messages, and distinguish the Drawer tab with **세팅 / Settings P.**.
 
 - **0.2.0-v1** — One build with Korean/English UI, per-user language selection, live Auto language updates, and localized results and input-bar shortcut.
@@ -110,7 +112,7 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 
 # 한국어
 
-버전 **0.2.0-v2**
+버전 **0.2.0-v3**
 
 같은 [Lumiverse](https://lumiverse.chat/) 프리셋을 여러 모델에 맞춰 사용하세요. 선택한 샘플러 설정과 프롬프트 변수 값을 프로필로 저장하고, 필요하면 연결도 지정해 한 번에 적용합니다. 프리셋을 복사하거나 블록·정규식을 수정하지 않고 프롬프트 구조를 유지할 수 있습니다.
 
@@ -209,6 +211,8 @@ Settings affect the preset, not individual chats. Only defined variables apply; 
 [MIT](LICENSE). 기존 저작권·저작자 표기는 [LICENSE](LICENSE)에, author 필드는 [spindle.json](spindle.json)에 유지됩니다.
 
 ## 변경 기록
+
+- **0.2.0-v3** — 적용·되돌리기·연결 전환 실패의 오류 진단을 로그에 기록하고 번역된 UI 안내는 유지. 첨부 데이터 제외 및 인증 정보 마스킹.
 
 - **0.2.0-v2** — Auto 언어 전환 시점 수정, 포커스·표시 상태 변경 반영, 기존 상태 메시지 재번역, **세팅 / Settings P.** 탭 이름으로 구분.
 
